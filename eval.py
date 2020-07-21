@@ -1,3 +1,4 @@
+import os
 import sys
 
 from nltk.tokenize import word_tokenize
@@ -48,10 +49,15 @@ def eval_generation(model, tokenizer, loader):
 
     print('BLEU score: {}\n'.format(bleu_score.corpus_bleu(list_of_references, hypotheses)))
 
+    for i in range(4):
+        weights = tuple(j == i for j in range(4))
+        print('{}-gram: {}'.format(i + 1, bleu_score.corpus_bleu(list_of_references, hypotheses, weights=weights)))
+    print()
+
 
 task_names = sys.argv[1].split(',')
 
-model = T5ForConditionalGeneration.from_pretrained(''.join(task_names)).cuda()
+model = T5ForConditionalGeneration.from_pretrained(os.path.join('model', ''.join(task_names))).cuda()
 tokenizer = T5Tokenizer.from_pretrained('t5-base')
 
 for task_name in task_names:

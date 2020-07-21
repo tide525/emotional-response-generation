@@ -53,4 +53,4 @@ model = T5FineTuner(args, get_dataset)
 trainer = pl.Trainer(**train_params)
 trainer.fit(model)
 
-model.model.save_pretrained(os.path.join('model', 't5_base_' + ''.join(task_names)))
+model.model.save_pretrained(os.path.join('model', ''.join(task_names)))
