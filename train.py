@@ -7,7 +7,7 @@ import pytorch_lightning as pl
 from model import T5FineTuner, LoggingCallback, args_dict
 from dataset import MultitaskDataset
 
-task_names = sys.argv[1].split(',')
+task_names = sorted(sys.argv[1].split(','))
 
 args_dict.update(dict(
     data_dir='data',

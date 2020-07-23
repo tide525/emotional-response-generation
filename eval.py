@@ -70,7 +70,7 @@ for task_name in task_names:
         print('# Emotion classification\n')
         eval_classification(model, tokenizer, loader, labels)
 
-    elif task_name == 'rg':
+    elif 'rg' in task_name:
         print('# Response generation\n')
         eval_generation(model, tokenizer, loader)
     

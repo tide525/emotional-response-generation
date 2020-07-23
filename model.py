@@ -1,11 +1,24 @@
-import os
 import logging
+import os
+import random
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
 
 from transformers import AdamW, T5ForConditionalGeneration, T5Tokenizer, get_linear_schedule_with_warmup
+
+
+def set_seed(seed):
+  random.seed(seed)
+  np.random.seed(seed)
+  torch.manual_seed(seed)
+  if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(seed)
+
+
+set_seed(42)
 
 
 class T5FineTuner(pl.LightningModule):
