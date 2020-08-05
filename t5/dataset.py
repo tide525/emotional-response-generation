@@ -4,8 +4,12 @@ import os
 from torch.utils.data import Dataset
 
 path_dict = dict(
-    ec='ued', rg='cmdc', sa='sst2',
-    revec='ued', rg2='crawled',
+    ec='ued',
+    rg='cmdc',
+    sa='sst2',
+    
+    revec='ued',
+    rg2='crawled',
 )
 
 prefix_dict = dict(
@@ -58,9 +62,9 @@ class MultitaskDataset(Dataset):
                     input_, target = target, input_
 
                 # tokenize inputs
-                tokenized_inputs = self.tokenizer.batch_encode_plus([prefix + input_ + ' </s>'], max_length=self.max_len, pad_to_max_length=True, return_tensors='pt')
+                tokenized_inputs = self.tokenizer.batch_encode_plus([prefix + input_ + ' </s>'], max_length=self.max_len, pad_to_max_length=True, return_tensors='pt', truncation=True)
                 # tokenize targets
-                tokenized_targets = self.tokenizer.batch_encode_plus([target + ' </s>'], max_length=self.max_len, pad_to_max_length=True, return_tensors='pt')
+                tokenized_targets = self.tokenizer.batch_encode_plus([target + ' </s>'], max_length=self.max_len, pad_to_max_length=True, return_tensors='pt', truncation=True)
 
                 self.inputs.append(tokenized_inputs)
                 self.targets.append(tokenized_targets)
