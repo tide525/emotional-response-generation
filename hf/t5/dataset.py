@@ -10,6 +10,7 @@ path_dict = dict(
     
     revec='ued',
     rg2='crawled',
+    rg3=os.path.join('../../data/crawled'),
 )
 
 prefix_dict = dict(
@@ -19,6 +20,7 @@ prefix_dict = dict(
 
     revec='generate emotion: ',
     rg2='generate response: ',
+    rg3='generate response: ',
 )
 
 
