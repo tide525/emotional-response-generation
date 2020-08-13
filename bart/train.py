@@ -8,7 +8,7 @@ import pytorch_lightning as pl
 from dataset import MultitaskDataset
 from model import MultitaskBartFinetuner, LoggingCallback, args_dict
 
-tasks = sys.argv[1:len(sys.argv)]
+tasks = sys.argv[1:]
 
 output_dir = os.path.join('output', ''.join(task[0] for task in tasks))
 if os.path.isdir(output_dir):
@@ -18,8 +18,13 @@ os.mkdir(output_dir)
 args_dict.update(dict(
     data_dir='../data',
     output_dir=output_dir,
-    model_name_or_path='facebook/bart-base',
-    num_train_epochs=2,
+    # model_name_or_path='facebook/bart-base',
+    max_seq_length=256,
+    learning_rate=3e-5,
+    weight_decay=0.01,
+    warmup_steps=500,
+    num_train_epochs=4,
+    max_grad_norm=0.1,
 ))
 args = argparse.Namespace(**args_dict)
 

@@ -7,31 +7,42 @@ from transformers.configuration_bart import BartConfig
 from transformers.modeling_bart import (
     PretrainedBartModel,
     _make_linear_from_emb,
+    _reorder_buffer,
     BartClassificationHead,
     BartModel
 )
-
-num_labels_dict = {"emotion": 6, "sentiment": 2}
 
 
 class BartForMultitaskLearning(PretrainedBartModel):
     def __init__(self, config: BartConfig, **kwargs):
         super().__init__(config, **kwargs)
+
         self.model = BartModel(config)
         self.register_buffer(
             "final_logits_bias",
             torch.zeros((1, self.model.shared.num_embeddings)),
         )
 
-        self.classification_head = BartClassificationHead(
+        self.num_emotions = 6
+        self.num_sentiments = 2
+
+        self.emotion_head = BartClassificationHead(
             config.d_model,
             config.d_model,
-            num_labels_dict["emotion"],
+            self.num_emotions,
             config.classif_dropout,
         )
+        self.model._init_weights(self.emotion_head.dense)
+        self.model._init_weights(self.emotion_head.out_proj)
 
-        self.model._init_weights(self.classification_head.dense)
-        self.model._init_weights(self.classification_head.out_proj)
+        self.sentiment_head = BartClassificationHead(
+            config.d_model,
+            config.d_model,
+            self.num_sentiments,
+            config.classif_dropout,
+        )
+        self.model._init_weights(self.sentiment_head.dense)
+        self.model._init_weights(self.sentiment_head.out_proj)
 
     def resize_token_embeddings(self, new_num_tokens):
         old_num_tokens = self.model.shared.num_embeddings
@@ -46,7 +57,7 @@ class BartForMultitaskLearning(PretrainedBartModel):
         else:
             extra_bias = torch.zeros(
                 (1, new_num_tokens - old_num_tokens),
-                device=self.final_logits_bias.device
+                device=self.final_logits_bias.device,
             )
             new_bias = torch.cat([self.final_logits_bias, extra_bias], dim=1)
         self.register_buffer("final_logits_bias", new_bias)
@@ -93,7 +104,7 @@ class BartForMultitaskLearning(PretrainedBartModel):
             lm_logits = F.linear(
                 outputs[0],
                 self.model.shared.weight,
-                bias=self.final_logits_bias
+                bias=self.final_logits_bias,
             )
             outputs = (lm_logits,) + outputs[1:]  # Add cache, hidden states and attention if they are here
 
@@ -101,7 +112,8 @@ class BartForMultitaskLearning(PretrainedBartModel):
                 loss_fct = nn.CrossEntropyLoss()
                 # TODO(SS): do we need to ignore pad tokens in labels?
                 masked_lm_loss = loss_fct(
-                    lm_logits.view(-1, self.config.vocab_size), labels.view(-1)
+                    lm_logits.view(-1, self.config.vocab_size),
+                    labels.view(-1),
                 )
                 outputs = (masked_lm_loss,) + outputs
 
@@ -114,17 +126,26 @@ class BartForMultitaskLearning(PretrainedBartModel):
                    "All examples must have the same number of <eos> tokens."
                 )
 
+            if task == "emotion":
+                classification_head = self.emotion_head
+                num_labels = self.num_emotions
+            else:
+                classification_head = self.sentiment_head
+                num_labels = self.num_sentiments
+
             sentence_representation = x[eos_mask, :].view(
-                x.size(0), -1, x.size(-1)
+                x.size(0),
+                -1,
+                x.size(-1)
             )[:, -1, :]
-            logits = self.classification_head(sentence_representation)
+            logits = classification_head(sentence_representation)
 
             # Prepend logits
             outputs = (logits,) + outputs[1:]  # Add hidden states and attention if they are here
             if labels is not None:  # prepend loss to output,
                 loss = F.cross_entropy(
-                    # logits.view(-1, self.config.num_labels), labels.view(-1)
-                    logits.view(-1, num_labels_dict[task]), labels.view(-1)
+                    logits.view(-1, num_labels),
+                    labels.view(-1)
                 )
                 outputs = (loss,) + outputs
         
@@ -139,7 +160,8 @@ class BartForMultitaskLearning(PretrainedBartModel):
         past,
         attention_mask,
         use_cache,
-        **kwargs
+        task,
+        **kwargs,
     ):
         assert past is not None, "past has to be defined for encoder_outputs"
 
@@ -151,7 +173,7 @@ class BartForMultitaskLearning(PretrainedBartModel):
             "decoder_input_ids": decoder_input_ids,
             "attention_mask": attention_mask,
             "use_cache": use_cache,  # change this to avoid caching (presumably for debugging)
-            "task": kwargs["task"],
+            "task": task,
         }
 
     def adjust_logits_during_generation(self, logits, cur_len, max_length):
