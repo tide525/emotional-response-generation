@@ -36,7 +36,7 @@ it = iter(loader)
 
 labels_dict = {
     'emotion': ['joy', 'anger', 'sadness', 'disgust', 'fear', 'surprise'],
-    'sentiment': ['positive', 'negative'],
+    'sentiment': ['positive', 'negative']
 }
 
 batch = next(it)
@@ -49,9 +49,9 @@ for i in range(8):
             input_ids=batch['source_ids'].cuda(),
             attention_mask=batch['source_mask'].cuda(),
             max_length=256,
-            min_length=5,
+            min_length=16,
             num_beams=5,
-            task=batch['task'][0],
+            task=batch['task'][0]
         )
 
         dec = [tokenizer.decode(ids, True) for ids in outs]
@@ -68,7 +68,7 @@ for i in range(8):
             attention_mask=batch['source_mask'].cuda(),
             decoder_attention_mask=batch['target_mask'].cuda(),
             lm_labels=lm_labels,
-            task=batch['task'][0],
+            task=batch['task'][0]
         )[1].argmax(1)
 
         labels = labels_dict[batch['task'][0]]
@@ -107,7 +107,7 @@ def eval_classification(model, tokenizer, loader, labels):
             attention_mask=batch['source_mask'].cuda(),
             decoder_attention_mask=batch['target_mask'].cuda(),
             lm_labels=lm_labels,
-            task=batch['task'][0],
+            task=batch['task'][0]
         )[1].argmax(1)
 
         dec = [label.item() for label in outs]
@@ -128,9 +128,9 @@ def eval_generation(model, tokenizer, loader):
             input_ids=batch['source_ids'].cuda(),
             attention_mask=batch['source_mask'].cuda(),
             max_length=256,
-            min_length=5,
+            min_length=16,
             num_beams=5,
-            task=batch['task'][0],
+            task=batch['task'][0]
         )
 
         dec = [tokenizer.convert_ids_to_tokens(ids, True) for ids in outs]

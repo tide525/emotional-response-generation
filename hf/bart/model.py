@@ -25,6 +25,30 @@ def set_seed(seed):
 set_seed(42)
 
 
+def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=-100):
+    """From fairseq"""
+    if target.dim() == lprobs.dim() - 1:
+        target = target.unsqueeze(-1)
+
+    nll_loss = -lprobs.gather(dim=-1, index=target)
+    smooth_loss = -lprobs.sum(dim=-1, keepdim=True)
+
+    if ignore_index is not None:
+        pad_mask = target.eq(ignore_index)
+        nll_loss.masked_fill_(pad_mask, 0.0)
+        smooth_loss.masked_fill_(pad_mask, 0.0)
+    else:
+        nll_loss = nll_loss.squeeze(-1)
+        smooth_loss = smooth_loss.squeeze(-1)
+
+    nll_loss = nll_loss.sum()  # mean()? Scared to break other math.
+    smooth_loss = smooth_loss.sum()
+    eps_i = epsilon / lprobs.size(-1)
+    
+    loss = (1.0 - epsilon) * nll_loss + eps_i * smooth_loss
+    return loss, nll_loss
+
+
 class MultitaskBartFinetuner(pl.LightningModule):
     def __init__(self, hparams, get_dataset):
         super().__init__()
@@ -48,7 +72,8 @@ class MultitaskBartFinetuner(pl.LightningModule):
         decoder_input_ids=None,
         decoder_attention_mask=None,
         lm_labels=None,
-        task=None,
+        use_cache=None,
+        task=None
     ):
         return self.model(
             input_ids,
@@ -56,21 +81,54 @@ class MultitaskBartFinetuner(pl.LightningModule):
             decoder_input_ids=decoder_input_ids,
             decoder_attention_mask=decoder_attention_mask,
             lm_labels=lm_labels,
-            task=task,
+            use_cache=use_cache,
+            task=task
         )
 
     def _step(self, batch):
-        lm_labels = batch['target_ids']
-        lm_labels[lm_labels[:, :] == self.tokenizer.pad_token_id] = -100
+        # lm_labels = batch['target_ids']
+        # lm_labels[lm_labels[:, :] == self.tokenizer.pad_token_id] = -100
 
-        outputs = self(
-            input_ids=batch['source_ids'],
-            attention_mask=batch['source_mask'],
-            decoder_attention_mask=batch['target_mask'],
-            lm_labels=lm_labels,
-            task=batch['task'][0],
-        )
-        loss = outputs[0]
+        if batch['task'][0] == 'response':
+            pad_token_id = self.tokenizer.pad_token_id
+            target_ids = batch['target_ids']
+
+            decoder_input_ids = target_ids[:, :-1].contiguous()  # Why this line?
+            lm_labels = target_ids[:, 1:].clone()  # why clone?
+
+            outputs = self(
+                input_ids=batch['source_ids'],
+                attention_mask=batch['source_mask'],
+                # decoder_attention_mask=batch['target_mask'],
+                # lm_labels=lm_labels,
+                decoder_input_ids=decoder_input_ids,
+                use_cache=False,
+                task=batch['task'][0]
+            )
+
+            lprobs = torch.nn.functional.log_softmax(outputs[0], dim=-1)
+            loss, nll_loss = label_smoothed_nll_loss(
+                lprobs,
+                lm_labels,
+                self.hparams.label_smoothing,
+                ignore_index=pad_token_id
+            )
+
+        elif batch['task'][0] in ['emotion', 'sentiment']:
+            lm_labels = batch['target_ids']
+
+            outputs = self(
+                input_ids=batch['source_ids'],
+                attention_mask=batch['source_mask'],
+                # decoder_attention_mask=batch['target_mask'],
+                lm_labels=lm_labels,
+                task=batch['task'][0]
+            )
+            loss = outputs[0]
+
+        else:
+            raise ValueError("A task must be emotion, response or sentiment.")
+
         return loss
 
     def training_step(self, batch, batch_idx):
@@ -85,7 +143,7 @@ class MultitaskBartFinetuner(pl.LightningModule):
         return {
             'avg_train_loss': avg_train_loss,
             'log': tensorboard_logs,
-            'progress_bar': tensorboard_logs,
+            'progress_bar': tensorboard_logs
         }
 
     def validation_step(self, batch, batch_idx):
@@ -98,7 +156,7 @@ class MultitaskBartFinetuner(pl.LightningModule):
         return {
             'avg_val_loss': avg_loss,
             'log': tensorboard_logs,
-            'progress_bar': tensorboard_logs,
+            'progress_bar': tensorboard_logs
         }
 
     def configure_optimizers(self):
@@ -110,15 +168,15 @@ class MultitaskBartFinetuner(pl.LightningModule):
                     p for n, p in model.named_parameters()
                     if not any(nd in n for nd in no_decay)
                 ],
-                'weight_decay': self.hparams.weight_decay,
+                'weight_decay': self.hparams.weight_decay
             },
             {
                 'params': [
                     p for n, p in model.named_parameters()
                     if any(nd in n for nd in no_decay)
                 ],
-                'weight_decay': 0.0,
-            },
+                'weight_decay': 0.0
+            }
         ]
         optimizer = AdamW(
             optimizer_grouped_parameters,
@@ -154,21 +212,22 @@ class MultitaskBartFinetuner(pl.LightningModule):
         train_dataset = self.get_dataset(
             tokenizer=self.tokenizer,
             type_path='train',
-            args=self.hparams,
+            args=self.hparams
         )
         sampler = MultitaskSampler(
             data_source=train_dataset,
             batch_size=self.hparams.train_batch_size,
-            drop_last=True,
+            drop_last=True
         )
         dataloader = DataLoader(
             dataset=train_dataset,
             batch_sampler=sampler,
-            num_workers=4,
+            num_workers=4
         )
         t_total = (
             (
-                len(dataloader.dataset) // (
+                len(dataloader.dataset)
+                // (
                     self.hparams.train_batch_size * max(1, self.hparams.n_gpu)
                 )
             )
@@ -178,7 +237,7 @@ class MultitaskBartFinetuner(pl.LightningModule):
         scheduler = get_linear_schedule_with_warmup(
             self.opt,
             num_warmup_steps=self.hparams.warmup_steps,
-            num_training_steps=t_total,
+            num_training_steps=t_total
         )
         self.lr_scheduler = scheduler
         return dataloader
@@ -187,17 +246,17 @@ class MultitaskBartFinetuner(pl.LightningModule):
         val_dataset = self.get_dataset(
             tokenizer=self.tokenizer,
             type_path='val',
-            args=self.hparams,
+            args=self.hparams
         )
         sampler = MultitaskSampler(
             data_source=val_dataset,
             batch_size=self.hparams.train_batch_size,
-            drop_last=True,
+            drop_last=True
         )
         return DataLoader(
             dataset=val_dataset,
             batch_sampler=sampler,
-            num_workers=4,
+            num_workers=4
         )
 
 
@@ -225,7 +284,7 @@ class LoggingCallback(pl.Callback):
             # Log and save results to file
             output_test_results_file = os.path.join(
                 pl_module.hparams.output_dir,
-                'test_results.txt',
+                'test_results.txt'
             )
 
             with open(output_test_results_file, 'w') as writer:
@@ -257,5 +316,5 @@ args_dict = dict(
     opt_level='O1',  # you can find out more on optimisation levels here https://nvidia.github.io/apex/amp.html#opt-levels-and-properties
     # if you enable 16-bit training then set this to a sensible value, 0.5 is a good default
     max_grad_norm=1.0,
-    seed=42,
+    seed=42
 )

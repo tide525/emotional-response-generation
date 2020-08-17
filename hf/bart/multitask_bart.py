@@ -20,7 +20,7 @@ class BartForMultitaskLearning(PretrainedBartModel):
         self.model = BartModel(config)
         self.register_buffer(
             "final_logits_bias",
-            torch.zeros((1, self.model.shared.num_embeddings)),
+            torch.zeros((1, self.model.shared.num_embeddings))
         )
 
         self.num_emotions = 6
@@ -30,7 +30,7 @@ class BartForMultitaskLearning(PretrainedBartModel):
             config.d_model,
             config.d_model,
             self.num_emotions,
-            config.classif_dropout,
+            config.classif_dropout
         )
         self.model._init_weights(self.emotion_head.dense)
         self.model._init_weights(self.emotion_head.out_proj)
@@ -39,7 +39,7 @@ class BartForMultitaskLearning(PretrainedBartModel):
             config.d_model,
             config.d_model,
             self.num_sentiments,
-            config.classif_dropout,
+            config.classif_dropout
         )
         self.model._init_weights(self.sentiment_head.dense)
         self.model._init_weights(self.sentiment_head.out_proj)
@@ -57,7 +57,7 @@ class BartForMultitaskLearning(PretrainedBartModel):
         else:
             extra_bias = torch.zeros(
                 (1, new_num_tokens - old_num_tokens),
-                device=self.final_logits_bias.device,
+                device=self.final_logits_bias.device
             )
             new_bias = torch.cat([self.final_logits_bias, extra_bias], dim=1)
         self.register_buffer("final_logits_bias", new_bias)
@@ -75,13 +75,13 @@ class BartForMultitaskLearning(PretrainedBartModel):
         output_attentions=None,
         output_hidden_states=None,
         task=None,
-        **unused,
+        **unused
     ):
         if "lm_labels" in unused:
             warnings.warn(
                 "The `lm_labels` argument is deprecated and will be removed "
                 "in a future version, use `labels` instead.",
-                DeprecationWarning,
+                DeprecationWarning
             )
             labels = unused.pop("lm_labels")
 
@@ -97,14 +97,14 @@ class BartForMultitaskLearning(PretrainedBartModel):
             decoder_cached_states=decoder_cached_states,
             use_cache=use_cache,
             output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
+            output_hidden_states=output_hidden_states
         )
 
         if task == "response":
             lm_logits = F.linear(
                 outputs[0],
                 self.model.shared.weight,
-                bias=self.final_logits_bias,
+                bias=self.final_logits_bias
             )
             outputs = (lm_logits,) + outputs[1:]  # Add cache, hidden states and attention if they are here
 
@@ -113,7 +113,7 @@ class BartForMultitaskLearning(PretrainedBartModel):
                 # TODO(SS): do we need to ignore pad tokens in labels?
                 masked_lm_loss = loss_fct(
                     lm_logits.view(-1, self.config.vocab_size),
-                    labels.view(-1),
+                    labels.view(-1)
                 )
                 outputs = (masked_lm_loss,) + outputs
 
@@ -161,7 +161,7 @@ class BartForMultitaskLearning(PretrainedBartModel):
         attention_mask,
         use_cache,
         task,
-        **kwargs,
+        **kwargs
     ):
         assert past is not None, "past has to be defined for encoder_outputs"
 
@@ -173,7 +173,7 @@ class BartForMultitaskLearning(PretrainedBartModel):
             "decoder_input_ids": decoder_input_ids,
             "attention_mask": attention_mask,
             "use_cache": use_cache,  # change this to avoid caching (presumably for debugging)
-            "task": task,
+            "task": task
         }
 
     def adjust_logits_during_generation(self, logits, cur_len, max_length):
@@ -189,7 +189,7 @@ class BartForMultitaskLearning(PretrainedBartModel):
         all_but_token_ids_mask = torch.tensor(
             [x for x in range(self.config.vocab_size) if x not in token_ids],
             dtype=torch.long,
-            device=next(self.parameters()).device,
+            device=next(self.parameters()).device
         )
         assert (
             len(scores.shape) == 2,

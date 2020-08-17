@@ -25,6 +25,8 @@ args_dict.update(dict(
     warmup_steps=500,
     num_train_epochs=4,
     max_grad_norm=0.1,
+
+    label_smoothing=0.1
 ))
 args = argparse.Namespace(**args_dict)
 
@@ -33,7 +35,7 @@ checkpoint_callback = pl.callbacks.ModelCheckpoint(
     prefix='checkpoint',
     monitor='val_loss',
     mode='min',
-    save_top_k=5,
+    save_top_k=5
 )
 
 train_params = dict(
@@ -45,7 +47,7 @@ train_params = dict(
     amp_level=args.opt_level,
     gradient_clip_val=args.max_grad_norm,
     checkpoint_callback=checkpoint_callback,
-    callbacks=[LoggingCallback()],
+    callbacks=[LoggingCallback()]
 )
 
 
@@ -55,7 +57,7 @@ def get_dataset(tokenizer, type_path, args):
         tokenizer=tokenizer,
         data_dir=args.data_dir,
         type_path=type_path,
-        max_len=args.max_seq_length,
+        max_len=args.max_seq_length
     )
 
 
