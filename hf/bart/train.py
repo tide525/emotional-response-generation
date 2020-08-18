@@ -16,7 +16,7 @@ if os.path.isdir(output_dir):
 os.mkdir(output_dir)
 
 args_dict.update(dict(
-    data_dir='../data',
+    data_dir='data',
     output_dir=output_dir,
     # model_name_or_path='facebook/bart-base',
     max_seq_length=256,

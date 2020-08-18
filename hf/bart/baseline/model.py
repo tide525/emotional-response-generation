@@ -197,7 +197,7 @@ class BartFineTuner(pl.LightningModule):
 
         # scheduler = self.get_lr_scheduler()
 
-        return [optimizer]  #, [scheduler]
+        return [optimizer]  # , [scheduler]
 
     def optimizer_step(
         self,

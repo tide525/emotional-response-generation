@@ -27,7 +27,7 @@ model = BartForMultitaskLearning.from_pretrained(
 tokenizer = BartTokenizer.from_pretrained('facebook/bart-large')
 
 # visualize few predictions on test dataset
-dataset = MultitaskDataset(tasks, tokenizer, '../data', 'test', 256)
+dataset = MultitaskDataset(tasks, tokenizer, 'data', 'test', 256)
 sampler = MultitaskSampler(dataset, 32, False)
 
 loader = DataLoader(dataset, batch_sampler=sampler)
@@ -160,7 +160,7 @@ def eval_generation(model, tokenizer, loader):
 
 # predict on all the test dataset
 for task in tasks:
-    dataset = MultitaskDataset([task], tokenizer, '../data', 'test', 256)
+    dataset = MultitaskDataset([task], tokenizer, 'data', 'test', 256)
     loader = DataLoader(dataset, batch_size=32)
 
     if task == 'emotion':
