@@ -19,7 +19,7 @@ for split in splits:
 
         for input_file in input_files:
             with open(input_file, encoding='utf-8') as f:
-                text = f.read()
+                text = f.read().replace('\t', ' ')
 
             pairs.append([text, label])
 

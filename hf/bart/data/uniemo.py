@@ -13,8 +13,8 @@ with open(input_file, encoding='utf-8') as f:
     for line in f:
         line_dict = json.loads(line)
 
-        text = line_dict['text']
-        if not text or '\t' in text:
+        text = line_dict['text'].replace('\t', ' ')
+        if not text:
             continue
         emotion_dict = line_dict['emotions']
 

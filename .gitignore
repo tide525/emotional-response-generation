@@ -1,3 +1,5 @@
+__pycache__
+
 fairseq/bart.large*
 fairseq/crawled/
 

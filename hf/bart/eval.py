@@ -28,7 +28,7 @@ tokenizer = BartTokenizer.from_pretrained('facebook/bart-large')
 
 # visualize few predictions on test dataset
 dataset = MultitaskDataset(tasks, tokenizer, 'data', 'test', 256)
-sampler = MultitaskSampler(dataset, 32, False)
+sampler = MultitaskSampler(dataset, 8, False)
 
 loader = DataLoader(dataset, batch_sampler=sampler)
 
@@ -49,7 +49,6 @@ for i in range(8):
             input_ids=batch['source_ids'].cuda(),
             attention_mask=batch['source_mask'].cuda(),
             max_length=256,
-            min_length=16,
             num_beams=5,
             task=batch['task'][0]
         )
@@ -128,7 +127,6 @@ def eval_generation(model, tokenizer, loader):
             input_ids=batch['source_ids'].cuda(),
             attention_mask=batch['source_mask'].cuda(),
             max_length=256,
-            min_length=16,
             num_beams=5,
             task=batch['task'][0]
         )
@@ -161,7 +159,7 @@ def eval_generation(model, tokenizer, loader):
 # predict on all the test dataset
 for task in tasks:
     dataset = MultitaskDataset([task], tokenizer, 'data', 'test', 256)
-    loader = DataLoader(dataset, batch_size=32)
+    loader = DataLoader(dataset, batch_size=8)
 
     if task == 'emotion':
         # labels = ['joy', 'anger', 'sadness', 'disgust', 'fear', 'surprise']
