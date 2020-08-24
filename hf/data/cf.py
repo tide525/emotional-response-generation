@@ -3,7 +3,9 @@ import os
 import random
 import sys
 
-cf_file = sys.argv[1]
+random.seed(0)
+
+input_path = sys.argv[1]
 output_dir = sys.argv[2]
 
 # anger, disgust, fear, joy, sadness, surprise,
@@ -23,19 +25,17 @@ emotions = ['anger', 'disgust', 'fear', 'joy', 'sadness', 'surprise']
 
 pairs = []
 
-with open(cf_file, encoding='utf-8') as f:
+with open(input_path) as f:
     reader = csv.DictReader(f)
     for row in reader:
         emotion = row['sentiment']
         if emotion in label_map:
             emotion = label_map[emotion]
         
-        if emotion in emotions:
+        if emotion is None or emotion in emotions:
             text = row['content']
+            pairs.append((text, str(emotion)))
 
-            pairs.append([text, emotion])
-
-random.seed(0)
 random.shuffle(pairs)
 
 total_size = len(pairs)
@@ -43,14 +43,15 @@ total_size = len(pairs)
 val_size = total_size // 20
 train_size = total_size - 2 * val_size
 
-output_dict = {
-    'train': pairs[:train_size],
-    'val': pairs[train_size:train_size+val_size],
-    'test': pairs[train_size+val_size:],
-}
+list_of_pairs = [
+    pairs[:train_size],
+    pairs[train_size:train_size+val_size],
+    pairs[train_size+val_size:]
+]
 
-for split, output in output_dict.items():
-    output_file = os.path.join(output_dir, split + '.tsv')
-
-    with open(output_file, 'w', encoding='utf-8') as f:
-        f.write('\n'.join('\t'.join(pair) for pair in output) + '\n')
+for i, split in enumerate(['train', 'val', 'test']):
+    for j, lang in enumerate(['source', 'target']):
+        output_path = os.path.join(output_dir, split + '.' + lang)
+        with open(output_path, 'w') as f:
+            for k in range(len(list_of_pairs[i])):
+                f.write(list_of_pairs[i][k][j] + '\n')
