@@ -6,8 +6,12 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
-
-from transformers import AdamW, T5ForConditionalGeneration, T5Tokenizer, get_linear_schedule_with_warmup
+from transformers import (
+    AdamW,
+    T5ForConditionalGeneration,
+    T5Tokenizer,
+    get_linear_schedule_with_warmup
+)
 
 
 def set_seed(seed):
@@ -27,22 +31,70 @@ class T5FineTuner(pl.LightningModule):
         self.hparams = hparams
         self.get_dataset = get_dataset
 
-        self.model = T5ForConditionalGeneration.from_pretrained(hparams.model_name_or_path)
-        self.tokenizer = T5Tokenizer.from_pretrained(hparams.tokenizer_name_or_path)
+        self.model = T5ForConditionalGeneration.from_pretrained(
+            hparams.model_name_or_path
+        )
+        self.tokenizer = T5Tokenizer.from_pretrained(
+            hparams.tokenizer_name_or_path
+        )
 
     def is_logger(self):
         return self.trainer.global_rank <= 0
 
-    def forward(self, input_ids, attention_mask=None, decoder_input_ids=None, decoder_attention_mask=None, lm_labels=None):
-        return self.model(input_ids, attention_mask=attention_mask, decoder_input_ids=decoder_input_ids, decoder_attention_mask=decoder_attention_mask, lm_labels=lm_labels)
+    def forward(
+        self,
+        input_ids,
+        attention_mask=None,
+        decoder_input_ids=None,
+        decoder_attention_mask=None,
+        use_cache=False
+    ):
+        return self.model(
+            input_ids,
+            attention_mask=attention_mask,
+            decoder_input_ids=decoder_input_ids,
+            decoder_attention_mask=decoder_attention_mask,
+            use_cache=use_cache
+        )
 
-    def _step(self, batch):
+    '''def _step(self, batch):
         lm_labels = batch['target_ids']
         lm_labels[lm_labels[:, :] == self.tokenizer.pad_token_id] = -100
 
-        outputs = self(input_ids=batch['source_ids'], attention_mask=batch['source_mask'], lm_labels=lm_labels, decoder_attention_mask=batch['target_mask'])
+        outputs = self(
+            input_ids=batch['source_ids'],
+            attention_mask=batch['source_mask'],
+            lm_labels=lm_labels,
+            decoder_attention_mask=batch['target_mask']
+        )
 
         loss = outputs[0]
+        return loss
+    '''
+
+    def _step(self, batch):
+        pad_token_id = self.tokenizer.pad_token_id
+        target_ids = batch['target_ids']
+
+        decoder_input_ids = self.model._shift_right(target_ids)
+        lm_labels = target_ids
+
+        outputs = self(
+            batch['source_ids'],
+            attention_mask=batch['source_mask'],
+            decoder_input_ids=decoder_input_ids,
+            use_cache=False
+        )
+
+        # Same behavior as modeling_bart.py
+        loss_fct = torch.nn.CrossEntropyLoss(ignore_index=pad_token_id)
+        lm_logits = outputs[0]
+        assert lm_logits.shape[-1] == self.model.config.vocab_size
+        loss = loss_fct(
+            lm_logits.view(-1, lm_logits.shape[-1]),
+            lm_labels.view(-1)
+        )
+
         return loss
 
     def training_step(self, batch, batch_idx):
@@ -55,7 +107,11 @@ class T5FineTuner(pl.LightningModule):
         avg_train_loss = torch.stack([x['loss'] for x in outputs]).mean()
 
         tensorboard_logs = {'avg_train_loss': avg_train_loss}
-        return {'avg_train_loss': avg_train_loss, 'log': tensorboard_logs, 'progress_bar': tensorboard_logs}
+        return {
+            'avg_train_loss': avg_train_loss,
+            'log': tensorboard_logs,
+            'progress_bar': tensorboard_logs
+        }
 
     def validation_step(self, batch, batch_idx):
         loss = self._step(batch)
@@ -66,20 +122,50 @@ class T5FineTuner(pl.LightningModule):
         avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
 
         tensorboard_logs = {'val_loss': avg_loss}
-        return {'avg_val_loss': avg_loss, 'log': tensorboard_logs, 'progress_bar': tensorboard_logs}
+        return {
+            'avg_val_loss': avg_loss,
+            'log': tensorboard_logs,
+            'progress_bar': tensorboard_logs
+        }
 
     def configure_optimizers(self):
         model = self.model
         no_decay = ['bias', 'LayerNorm.weight']
 
-        optimizer_grouped_parameters = [{'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': self.hparams.weight_decay}, {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0,}]
+        optimizer_grouped_parameters = [
+            {
+                'params': [
+                    p for n, p in model.named_parameters()
+                    if not any(nd in n for nd in no_decay)
+                ],
+                'weight_decay': self.hparams.weight_decay
+            },
+            {
+                'params': [
+                    p for n, p in model.named_parameters()
+                    if any(nd in n for nd in no_decay)
+                ],
+                'weight_decay': 0.0
+            }
+        ]
 
-        optimizer = AdamW(optimizer_grouped_parameters, lr=self.hparams.learning_rate, eps=self.hparams.adam_epsilon)
+        optimizer = AdamW(
+            optimizer_grouped_parameters,
+            lr=self.hparams.learning_rate,
+            eps=self.hparams.adam_epsilon
+        )
 
         self.opt = optimizer
         return [optimizer]
 
-    def optimizer_step(self, epoch, batch_idx, optimizer, optimizer_idx, second_order_closure=None):
+    def optimizer_step(
+        self,
+        epoch,
+        batch_idx,
+        optimizer,
+        optimizer_idx,
+        second_order_closure=None
+    ):
         if self.trainer.use_tpu:
             xm.optimizer_step(optimizer)
         else:
@@ -89,22 +175,56 @@ class T5FineTuner(pl.LightningModule):
         self.lr_scheduler.step()
 
     def get_tqdm_dict(self):
-        tqdm_dict = {'loss': '{:.3f}'.format(self.trainer.avg_loss), 'lr': self.lr_scheduler.get_last_lr()[-1]}
+        tqdm_dict = {
+            'loss': '{:.3f}'.format(self.trainer.avg_loss),
+            'lr': self.lr_scheduler.get_last_lr()[-1]
+        }
         return tqdm_dict
 
     def train_dataloader(self):
-        train_dataset = self.get_dataset(tokenizer=self.tokenizer, type_path='train', args=self.hparams)
-        dataloader = DataLoader(train_dataset, batch_size=self.hparams.train_batch_size, drop_last=True, shuffle=True, num_workers=4)
-        t_total = ((len(dataloader.dataset) // (self.hparams.train_batch_size * max(1, self.hparams.n_gpu))) // self.hparams.gradient_accumulation_steps * float(self.hparams.num_train_epochs))
-        scheduler = get_linear_schedule_with_warmup(self.opt, num_warmup_steps=self.hparams.warmup_steps, num_training_steps=t_total)
+        train_dataset = self.get_dataset(
+            tokenizer=self.tokenizer,
+            type_path='train',
+            args=self.hparams
+        )
+        dataloader = DataLoader(
+            train_dataset,
+            batch_size=self.hparams.train_batch_size,
+            drop_last=True,
+            shuffle=True,
+            num_workers=4
+        )
+        t_total = (
+            (
+                len(dataloader.dataset)
+                // (
+                    self.hparams.train_batch_size * max(1, self.hparams.n_gpu)
+                )
+            )
+            // self.hparams.gradient_accumulation_steps
+            * float(self.hparams.num_train_epochs)
+        )
+        scheduler = get_linear_schedule_with_warmup(
+            self.opt,
+            num_warmup_steps=self.hparams.warmup_steps,
+            num_training_steps=t_total
+        )
 
         self.lr_scheduler = scheduler
         return dataloader
 
     def val_dataloader(self):
-        val_dataset = self.get_dataset(tokenizer=self.tokenizer, type_path='val', args=self.hparams)
+        val_dataset = self.get_dataset(
+            tokenizer=self.tokenizer,
+            type_path='val',
+            args=self.hparams
+        )
         
-        return DataLoader(val_dataset, batch_size=self.hparams.eval_batch_size, num_workers=4)
+        return DataLoader(
+            val_dataset,
+            batch_size=self.hparams.eval_batch_size,
+            num_workers=4
+        )
 
 
 logger = logging.getLogger(__name__)
@@ -136,7 +256,9 @@ class LoggingCallback(pl.Callback):
             with open(output_test_results_file, 'w') as writer:
                 for key in sorted(metrics):
                     if key not in ['log', 'progress_bar']:
-                        logger.info('{} = {}\n'.format(key, str(metrics[key])))
+                        logger.info(
+                            '{} = {}\n'.format(key, str(metrics[key]))
+                        )
                         writer.write('{} = {}\n'.format(
                             key, str(metrics[key])))
 
@@ -160,5 +282,5 @@ args_dict = dict(
     fp_16=False,  # if you want to enable 16-bit training then install apex and set this to true
     opt_level='O1',  # you can find out more on optimisation levels here https://nvidia.github.io/apex/amp.html#opt-levels-and-properties
     max_grad_norm=1.0,  # if you enable 16-bit training then set this to a sensible value, 0.5 is a good default
-    seed=42,
+    seed=42
 )
