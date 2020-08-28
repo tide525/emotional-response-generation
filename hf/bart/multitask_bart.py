@@ -191,10 +191,8 @@ class BartForMultitaskLearning(PretrainedBartModel):
             dtype=torch.long,
             device=next(self.parameters()).device
         )
-        assert (
-            len(scores.shape) == 2,
+        assert len(scores.shape) == 2, \
             "scores should be of rank 2 with shape: [batch_size, vocab_size]"
-        )
         scores[:, all_but_token_ids_mask] = -float("inf")
 
     @staticmethod

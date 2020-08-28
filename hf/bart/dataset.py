@@ -3,24 +3,14 @@ import os
 import torch
 from torch.utils.data import Dataset
 
+data_dict = {'emotion': 'cf', 'response': 'dd_dial', 'sentiment': 'sst2'}
 
-data_dict = dict(
-    emotion=['uniemo'],
-    response=['crawled'],
-    sentiment=['imdb', 'sst2']
-)
+emotions = ['anger', 'disgust', 'fear', 'happiness', 'sadness', 'surprise']
+sentiments = ['positive', 'negative']
 
 
 class MultitaskDataset(Dataset):
     def __init__(self, tasks, tokenizer, data_dir, type_path, max_len=512):
-        self.paths_dict = {}
-        for task in tasks:
-            paths = []
-            for data_name in data_dict[task]:
-                path = os.path.join(data_dir, data_name, type_path + '.tsv')
-                paths.append(path)
-            self.paths_dict[task] = paths
-
         self.max_len = max_len
         self.tokenizer = tokenizer
         self.inputs = []
@@ -28,7 +18,7 @@ class MultitaskDataset(Dataset):
 
         self.tasks = []
 
-        self._build()
+        self._build(tasks, data_dir, type_path)
 
     def __len__(self):
         return len(self.inputs)
@@ -52,42 +42,60 @@ class MultitaskDataset(Dataset):
             'target_mask': target_mask
         }
 
-    def _build(self):
-        for task, paths in self.paths_dict.items():
-            for path in paths:
-                with open(path) as f:
-                    for line in f:
-                        input_, target = line.strip().split('\t')
+    def _build(self, tasks, data_dir, type_path):
+        for task in tasks:
+            self.tasks.append(task)
 
-                        tokenized_inputs = self.tokenizer.batch_encode_plus(
-                            [input_],
+            input_path = os.path.join(
+                data_dir,
+                data_dict[task],
+                type_path + '.input'
+            )
+            with open(input_path) as f:
+                for line in f:
+                    input_ = line.strip()
+                    # tokenize inputs
+                    tokenized_inputs = self.tokenizer.batch_encode_plus(
+                        [input_],
+                        max_length=self.max_len,
+                        pad_to_max_length=True,
+                        return_tensors='pt',
+                        truncation=True
+                    )
+                    self.inputs.append(tokenized_inputs)
+
+            target_path = os.path.join(
+                data_dir,
+                data_dict[task],
+                type_path + '.target'
+            )
+            with open(target_path) as f:
+                for line in f:
+                    target = line.strip()
+                    if task == 'response':
+                        # tokenize targets
+                        tokenized_targets = self.tokenizer.batch_encode_plus(
+                            [target],
                             max_length=self.max_len,
                             pad_to_max_length=True,
                             return_tensors='pt',
                             truncation=True
                         )
-
-                        if task == 'response':
-                            tokenized_targets = \
-                                    self.tokenizer.batch_encode_plus(
-                                [target],
-                                max_length=self.max_len,
-                                pad_to_max_length=True,
-                                return_tensors='pt',
-                                truncation=True
+                    else:
+                        if task == 'emotion':
+                            label = (
+                                emotions.index(target) + 1
+                                if target in emotions else 0
                             )
-                        elif task in ['emotion', 'sentiment']:
-                            tokenized_targets = {
-                                'input_ids': torch.tensor([[int(target)]]),
-                                'attention_mask': torch.tensor([[1]])
-                            }
+                        elif task == 'sentiment':
+                            label = int(target)
                         else:
                             raise ValueError(
                                 "A task must be emotion, "
                                 "response or sentiment."
                             )
-
-                        self.inputs.append(tokenized_inputs)
-                        self.targets.append(tokenized_targets)
-
-                        self.tasks.append(task)
+                        tokenized_targets = {
+                            'input_ids': torch.tensor([[label]]),
+                            'attention_mask': torch.tensor([[1]])
+                        }
+                    self.targets.append(tokenized_targets)

@@ -8,20 +8,23 @@ random.seed(0)
 input_path = sys.argv[1]
 output_dir = sys.argv[2]
 
-# anger, disgust, fear, joy, sadness, surprise,
-# enthusiasm, fun, hate, neutral, love, boredom, relief, empty
+# anger, boredom, empty, enthusiasm, fun, happiness, hate,
+# love, neutral, relief, sadness, surprise, worry
 
+# https://www.aclweb.org/anthology/C18-1179/
 label_map = {
-    'enthusiasm': 'joy',
-    'fun': 'joy',
-    'hate': 'disgust',
-    'neutral': 'noemo',
-    'love': 'love',
     'boredom': 'disgust',
-    'relief': 'joy',
-    'empty': None
+    'empty': None,
+    'enthusiasm': 'happiness',
+    'fun': 'happiness',
+    'hate': 'disgust',
+    'love': 'love',
+    'neutral': 'no emotion',
+    'relief': 'happiness',
+    'worry': 'fear'
 }
-emotions = ['anger', 'disgust', 'fear', 'joy', 'sadness', 'surprise']
+
+emotions = ['anger', 'disgust', 'fear', 'happiness', 'sadness', 'surprise']
 
 pairs = []
 
@@ -31,17 +34,15 @@ with open(input_path) as f:
         emotion = row['sentiment']
         if emotion in label_map:
             emotion = label_map[emotion]
-        
-        if emotion is None or emotion in emotions:
+
+        if emotion == 'no emotion' or emotion in emotions:
             text = row['content']
-            pairs.append((text, str(emotion)))
+            pairs.append((text, emotion))
 
 random.shuffle(pairs)
 
-total_size = len(pairs)
-
-val_size = total_size // 20
-train_size = total_size - 2 * val_size
+val_size = len(pairs) // 10
+train_size = len(pairs) - 2 * val_size
 
 list_of_pairs = [
     pairs[:train_size],
