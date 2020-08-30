@@ -44,12 +44,10 @@ class MultitaskDataset(Dataset):
 
     def _build(self, tasks, data_dir, type_path):
         for task in tasks:
-            self.tasks.append(task)
-
             input_path = os.path.join(
                 data_dir,
                 data_dict[task],
-                type_path + '.input'
+                type_path + '.source'
             )
             with open(input_path) as f:
                 for line in f:
@@ -83,10 +81,12 @@ class MultitaskDataset(Dataset):
                         )
                     else:
                         if task == 'emotion':
-                            label = (
+                            '''label = (
                                 emotions.index(target) + 1
                                 if target in emotions else 0
                             )
+                            '''
+                            label = emotions.index(target)
                         elif task == 'sentiment':
                             label = int(target)
                         else:
@@ -99,3 +99,4 @@ class MultitaskDataset(Dataset):
                             'attention_mask': torch.tensor([[1]])
                         }
                     self.targets.append(tokenized_targets)
+                    self.tasks.append(task)

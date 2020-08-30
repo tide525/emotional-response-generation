@@ -14,6 +14,7 @@
     - [sarnthil/unify-emotion-datasets: A Survey and Experiments on Annotated Corpora for Emotion Classification in Text](https://github.com/sarnthil/unify-emotion-datasets)
 - Response generation
     - [Cornell Movie-Dialogs Corpus](https://www.cs.cornell.edu/~cristian/Cornell_Movie-Dialogs_Corpus.html)
+    - [Yanran's Attic](http://yanran.li/dailydialog)
 - Sentiment analysis
-    - [Sentiment Analysis](https://ai.stanford.edu/~amaas/data/sentiment/)
     - [Recursive Deep Models for Semantic Compositionality Over a Sentiment Treebank](https://nlp.stanford.edu/sentiment/index.html)
+    - [Sentiment Analysis](https://ai.stanford.edu/~amaas/data/sentiment/)

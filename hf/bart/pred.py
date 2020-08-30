@@ -15,7 +15,7 @@ model = BartForMultitaskLearning.from_pretrained(
 ).cuda()
 tokenizer = BartTokenizer.from_pretrained('facebook/bart-large')
 
-dataset = MultitaskDataset(['response'], tokenizer, 'data', 'test', 256)
+dataset = MultitaskDataset(['response'], tokenizer, '../data', 'test', 256)
 loader = DataLoader(dataset, batch_size=32)
 
 model.eval()
@@ -31,7 +31,7 @@ for batch in tqdm(loader):
         task=batch['task'][0]
     )
 
-    dec = [tokenizer.decode(ids) for ids in outs]
+    dec = [tokenizer.decode(ids, skip_special_tokens=True) for ids in outs]
     outputs.extend(dec)
 
 for output in outputs:

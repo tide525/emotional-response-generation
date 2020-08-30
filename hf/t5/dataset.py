@@ -46,7 +46,7 @@ class MultitaskDataset(Dataset):
             input_path = os.path.join(
                 data_dir,
                 path_dict[task],
-                type_path + '.input'
+                type_path + '.source'
             )
             with open(input_path) as f:
                 for line in f:
@@ -69,9 +69,9 @@ class MultitaskDataset(Dataset):
             with open(target_path) as f:
                 for line in f:
                     if task == 'sentiment':
-                        target = line.strip() + ' </s>'
-                    else:
                         target = sentiments[int(line)] + ' </s>'
+                    else:
+                        target = line.strip() + ' </s>'
                     # tokenize targets
                     tokenized_targets = self.tokenizer.batch_encode_plus(
                         [target],
