@@ -10,9 +10,12 @@ for split in ['train', 'validation', 'test']:
 
     dial_path = os.path.join(input_dir, split, 'dial.txt.gz')
     emo_path = os.path.join(input_dir, split, 'emo.txt.gz')
-    with gzip.open(dial_path) as f_dial, gzip.open(emo_path) as f_emo:
-        for dial, emo in zip(f_dial, f_emo):    
-            pairs.append((dial.decode().strip(), emo.decode().strip()))
+    with gzip.open(dial_path) as dial_f, gzip.open(emo_path) as emo_f:
+        for dial_line, emo_line in zip(dial_f, emo_f):
+            dial = dial_line.decode().strip()
+            emo = emo_line.decode().strip()
+            if emo != '0':
+                pairs.append((dial, emo))
 
     pairs = sorted(set(pairs), key=pairs.index)
 

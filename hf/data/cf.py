@@ -35,11 +35,10 @@ with open(input_path) as f:
         if emotion in label_map:
             emotion = label_map[emotion]
 
-        if emotion == 'no emotion' or emotion in emotions:
+        if emotion in emotions:
+        # if emotion == 'no emotion' or emotion in emotions:
             text = row['content']
             pairs.append((text, emotion))
-
-random.shuffle(pairs)
 
 val_size = len(pairs) // 10
 train_size = len(pairs) - 2 * val_size
