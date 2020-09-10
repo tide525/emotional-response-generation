@@ -6,8 +6,8 @@
 
 ## Hugging Face
 
-[transformers/finetune.py at master · huggingface/transformers](https://github.com/huggingface/transformers/blob/master/examples/seq2seq/finetune.py)
-[transformers/modeling_bart.py at master · huggingface/transformers](https://github.com/huggingface/transformers/blob/master/src/transformers/modeling_bart.py)
+- [transformers/finetune.py at master · huggingface/transformers](https://github.com/huggingface/transformers/blob/master/examples/seq2seq/finetune.py)
+- [transformers/modeling_bart.py at master · huggingface/transformers](https://github.com/huggingface/transformers/blob/master/src/transformers/modeling_bart.py)
 
 [exploring-T5/t5_fine_tuning.ipynb at master · patil-suraj/exploring-T5](https://github.com/patil-suraj/exploring-T5/blob/master/t5_fine_tuning.ipynb)
 

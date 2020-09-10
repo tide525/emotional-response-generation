@@ -25,6 +25,8 @@ for split in ['train', 'dev']:
     else:
         pairs_dict['val'] = pairs
 
+# pairs_dict['train'] = pairs_dict['train'][:len(pairs_dict['train'])//4]
+
 for split, pairs in pairs_dict.items():
     for i, lang in enumerate(['source', 'target']):
         output_path = os.path.join(output_dir, split + '.' + lang)
