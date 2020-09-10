@@ -3,7 +3,11 @@ import os
 
 from torch.utils.data import Dataset
 
-path_dict = {'emotion': 'cf', 'response': 'dd_dial', 'sentiment': 'sst2'}
+path_dict = {
+    'emotion': 'tec',
+    'response': 'dd_dial_ne',
+    'sentiment': 'sst2_qtr'
+}
 
 prefix_dict = {
     'emotion': 'recognize emotion: ',
@@ -68,7 +72,12 @@ class MultitaskDataset(Dataset):
             )
             with open(target_path) as f:
                 for line in f:
-                    if task == 'sentiment':
+                    if task == 'emotion':
+                        emotion = line.strip()
+                        if emotion == 'joy':
+                            emotion = 'happiness'
+                        target = emotion + ' </s>'
+                    elif task == 'sentiment':
                         target = sentiments[int(line)] + ' </s>'
                     else:
                         target = line.strip() + ' </s>'

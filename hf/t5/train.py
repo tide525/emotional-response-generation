@@ -19,7 +19,7 @@ args_dict.update(dict(
     data_dir='../data',
     output_dir=output_dir,
     max_seq_length=256,
-    num_train_epochs=4
+    num_train_epochs=4,
 ))
 args = argparse.Namespace(**args_dict)
 

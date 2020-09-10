@@ -14,6 +14,27 @@ from transformers import (
 )
 
 
+def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=-100):
+    """From fairseq"""
+    if target.dim() == lprobs.dim() - 1:
+        target = target.unsqueeze(-1)
+    nll_loss = -lprobs.gather(dim=-1, index=target)
+    smooth_loss = -lprobs.sum(dim=-1, keepdim=True)
+    if ignore_index is not None:
+        pad_mask = target.eq(ignore_index)
+        nll_loss.masked_fill_(pad_mask, 0.0)
+        smooth_loss.masked_fill_(pad_mask, 0.0)
+    else:
+        nll_loss = nll_loss.squeeze(-1)
+        smooth_loss = smooth_loss.squeeze(-1)
+
+    nll_loss = nll_loss.sum()  # mean()? Scared to break other math.
+    smooth_loss = smooth_loss.sum()
+    eps_i = epsilon / lprobs.size(-1)
+    loss = (1.0 - epsilon) * nll_loss + eps_i * smooth_loss
+    return loss, nll_loss
+    
+
 def set_seed(seed):
   random.seed(seed)
   np.random.seed(seed)
@@ -77,7 +98,6 @@ class T5FineTuner(pl.LightningModule):
         target_ids = batch['target_ids']
 
         decoder_input_ids = self.model._shift_right(target_ids)
-        lm_labels = target_ids
 
         outputs = self(
             batch['source_ids'],
@@ -86,15 +106,24 @@ class T5FineTuner(pl.LightningModule):
             use_cache=False
         )
 
-        # Same behavior as modeling_bart.py
-        loss_fct = torch.nn.CrossEntropyLoss(ignore_index=pad_token_id)
         lm_logits = outputs[0]
-        assert lm_logits.shape[-1] == self.model.config.vocab_size
-        loss = loss_fct(
-            lm_logits.view(-1, lm_logits.shape[-1]),
-            lm_labels.view(-1)
-        )
-
+        if self.hparams.label_smoothing == 0:
+            # Same behavior as modeling_bart.py, besides ignoring pad_token_id
+            ce_loss_fct = torch.nn.CrossEntropyLoss(ignore_index=pad_token_id)
+            assert lm_logits.shape[-1] == self.model.config.vocab_size
+            loss = ce_loss_fct(
+                lm_logits.view(-1, lm_logits.shape[-1]),
+                target_ids.view(-1)
+            )
+        else:
+            lprobs = torch.nn.functional.log_softmax(lm_logits, dim=-1)
+            loss, nll_loss = label_smoothed_nll_loss(
+                lprobs,
+                target_ids,
+                self.hparams.label_smoothing,
+                ignore_index=pad_token_id
+            )
+        
         return loss
 
     def training_step(self, batch, batch_idx):
@@ -282,5 +311,6 @@ args_dict = dict(
     fp_16=False,  # if you want to enable 16-bit training then install apex and set this to true
     opt_level='O1',  # you can find out more on optimisation levels here https://nvidia.github.io/apex/amp.html#opt-levels-and-properties
     max_grad_norm=1.0,  # if you enable 16-bit training then set this to a sensible value, 0.5 is a good default
-    seed=42
+    seed=42,
+    label_smoothing=0.1
 )
