@@ -3,7 +3,7 @@ import os
 import torch
 from torch.utils.data import Dataset
 
-data_dict = {'emotion': 'cf', 'response': 'dd_dial', 'sentiment': 'sst2'}
+data_dict = {'emotion': 'tec', 'response': 'dd_dial_ne', 'sentiment': 'sst2_qtr'}
 
 emotions = ['anger', 'disgust', 'fear', 'happiness', 'sadness', 'surprise']
 sentiments = ['positive', 'negative']
@@ -81,11 +81,8 @@ class MultitaskDataset(Dataset):
                         )
                     else:
                         if task == 'emotion':
-                            '''label = (
-                                emotions.index(target) + 1
-                                if target in emotions else 0
-                            )
-                            '''
+                            if target == 'joy':
+                                target = 'happiness'
                             label = emotions.index(target)
                         elif task == 'sentiment':
                             label = int(target)

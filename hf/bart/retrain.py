@@ -8,7 +8,8 @@ import pytorch_lightning as pl
 from dataset import MultitaskDataset
 from model import MultitaskBartFinetuner, LoggingCallback, args_dict
 
-tasks = sys.argv[1:-1]
+from_model_name = sys.argv[1]
+tasks = sys.argv[2:-1]
 model_name = sys.argv[-1]
 
 output_dir = os.path.join('output', model_name)
@@ -19,11 +20,11 @@ os.mkdir(output_dir)
 args_dict.update(dict(
     data_dir='../data',
     output_dir=output_dir,
+    model_name_or_path=os.path.join('model', from_model_name),
     max_seq_length=256,
     learning_rate=3e-5,
     weight_decay=0.01,
     warmup_steps=500,
-    num_train_epochs=8,
     max_grad_norm=0.1
 ))
 args = argparse.Namespace(**args_dict)

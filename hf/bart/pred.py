@@ -8,10 +8,10 @@ from torch.utils.data import DataLoader
 from multitask_bart import BartForMultitaskLearning
 from dataset import MultitaskDataset
 
-tasks = sys.argv[1:]
+model_name = sys.argv[1]
 
 model = BartForMultitaskLearning.from_pretrained(
-    os.path.join('model', ''.join(task[0] for task in tasks))
+    os.path.join('model', model_name)
 ).cuda()
 tokenizer = BartTokenizer.from_pretrained('facebook/bart-large')
 
@@ -27,6 +27,7 @@ for batch in tqdm(loader):
         attention_mask=batch['source_mask'].cuda(), 
         max_length=256,
         num_beams=5,
+        no_repeat_ngram_size=3,
         early_stopping=True,
         task=batch['task'][0]
     )
@@ -34,5 +35,6 @@ for batch in tqdm(loader):
     dec = [tokenizer.decode(ids, skip_special_tokens=True) for ids in outs]
     outputs.extend(dec)
 
-for output in outputs:
-    print(output)
+with open(os.path.join('pred', model_name) + '.txt', 'w') as f:
+    for output in outputs:
+        f.write(output + '\n')

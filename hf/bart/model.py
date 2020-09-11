@@ -9,6 +9,8 @@ from torch.utils.data import DataLoader
 from transformers import (
     AdamW, BartTokenizer, get_linear_schedule_with_warmup,
 )
+from transformers.modeling_bart import shift_tokens_right
+
 
 from multitask_bart import BartForMultitaskLearning
 from sampler import MultitaskSampler
@@ -85,44 +87,49 @@ class MultitaskBartFinetuner(pl.LightningModule):
             task=task
         )
 
+    """def _step(self, batch):
+        lm_labels = batch["target_ids"]
+        lm_labels[lm_labels[:, :] == self.tokenizer.pad_token_id] = -100
+
+        outputs = self(
+            input_ids=batch["source_ids"],
+            attention_mask=batch["source_mask"],
+            lm_labels=lm_labels,
+            decoder_attention_mask=batch["target_mask"]
+        )
+        loss = outputs[0]
+        return loss
+    """
+
     def _step(self, batch):
-        # lm_labels = batch['target_ids']
-        # lm_labels[lm_labels[:, :] == self.tokenizer.pad_token_id] = -100
-
-        if batch['task'][0] == 'response':
+        if batch["task"][0] == "response":
             pad_token_id = self.tokenizer.pad_token_id
-            target_ids = batch['target_ids']
+            target_ids = batch["target_ids"]
 
-            decoder_input_ids = target_ids[:, :-1].contiguous()  # Why this line?
-            lm_labels = target_ids[:, 1:].clone()  # why clone?
+            decoder_input_ids = shift_tokens_right(target_ids, pad_token_id)
 
             outputs = self(
-                input_ids=batch['source_ids'],
-                attention_mask=batch['source_mask'],
-                # decoder_attention_mask=batch['target_mask'],
-                # lm_labels=lm_labels,
+                input_ids=batch["source_ids"],
+                attention_mask=batch["source_mask"],
                 decoder_input_ids=decoder_input_ids,
                 use_cache=False,
-                task=batch['task'][0]
+                task=batch["task"][0]
             )
 
             lprobs = torch.nn.functional.log_softmax(outputs[0], dim=-1)
             loss, nll_loss = label_smoothed_nll_loss(
                 lprobs,
-                lm_labels,
+                target_ids,
                 self.hparams.label_smoothing,
                 ignore_index=pad_token_id
             )
 
-        elif batch['task'][0] in ['emotion', 'sentiment']:
-            lm_labels = batch['target_ids']
-
+        elif batch["task"][0] in ["emotion", "sentiment"]:
             outputs = self(
-                input_ids=batch['source_ids'],
-                attention_mask=batch['source_mask'],
-                # decoder_attention_mask=batch['target_mask'],
-                lm_labels=lm_labels,
-                task=batch['task'][0]
+                input_ids=batch["source_ids"],
+                attention_mask=batch["source_mask"],
+                lm_labels=batch["target_ids"],
+                task=batch["task"][0]
             )
             loss = outputs[0]
 
@@ -133,49 +140,48 @@ class MultitaskBartFinetuner(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss = self._step(batch)
-
-        tensorboard_logs = {'train_loss': loss}
-        return {'loss': loss, 'log': tensorboard_logs}
+        tensorboard_logs = {"train_loss": loss}
+        return {"loss": loss, "log": tensorboard_logs}
 
     def training_epoch_end(self, outputs):
-        avg_train_loss = torch.stack([x['loss'] for x in outputs]).mean()
-        tensorboard_logs = {'avg_train_loss': avg_train_loss}
+        avg_train_loss = torch.stack([x["loss"] for x in outputs]).mean()
+        tensorboard_logs = {"avg_train_loss": avg_train_loss}
         return {
-            'avg_train_loss': avg_train_loss,
-            'log': tensorboard_logs,
-            'progress_bar': tensorboard_logs
+            "avg_train_loss": avg_train_loss,
+            "log": tensorboard_logs,
+            "progress_bar": tensorboard_logs
         }
 
     def validation_step(self, batch, batch_idx):
         loss = self._step(batch)
-        return {'val_loss': loss}
+        return {"val_loss": loss}
 
     def validation_epoch_end(self, outputs):
-        avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
-        tensorboard_logs = {'val_loss': avg_loss}
+        avg_loss = torch.stack([x["val_loss"] for x in outputs]).mean()
+        tensorboard_logs = {"val_loss": avg_loss}
         return {
-            'avg_val_loss': avg_loss,
-            'log': tensorboard_logs,
-            'progress_bar': tensorboard_logs
+            "avg_val_loss": avg_loss,
+            "log": tensorboard_logs,
+            "progress_bar": tensorboard_logs
         }
 
     def configure_optimizers(self):
         model = self.model
-        no_decay = ['bias', 'LayerNorm.weight']
+        no_decay = ["bias", "LayerNorm.weight"]
         optimizer_grouped_parameters = [
             {
-                'params': [
+                "params": [
                     p for n, p in model.named_parameters()
                     if not any(nd in n for nd in no_decay)
                 ],
-                'weight_decay': self.hparams.weight_decay
+                "weight_decay": self.hparams.weight_decay
             },
             {
-                'params': [
+                "params": [
                     p for n, p in model.named_parameters()
                     if any(nd in n for nd in no_decay)
                 ],
-                'weight_decay': 0.0
+                "weight_decay": 0.0
             }
         ]
         optimizer = AdamW(
@@ -203,15 +209,15 @@ class MultitaskBartFinetuner(pl.LightningModule):
 
     def get_tqdm_dict(self):
         tqdm_dict = {
-            'loss': '{:.3f}'.format(self.trainer.avg_loss),
-            'lr': self.lr_scheduler.get_last_lr()[-1]
+            "loss": "{:.3f}".format(self.trainer.avg_loss),
+            "lr": self.lr_scheduler.get_last_lr()[-1]
         }
         return tqdm_dict
 
     def train_dataloader(self):
         train_dataset = self.get_dataset(
             tokenizer=self.tokenizer,
-            type_path='train',
+            type_path="train",
             args=self.hparams
         )
         sampler = MultitaskSampler(
@@ -245,7 +251,7 @@ class MultitaskBartFinetuner(pl.LightningModule):
     def val_dataloader(self):
         val_dataset = self.get_dataset(
             tokenizer=self.tokenizer,
-            type_path='val',
+            type_path="val",
             args=self.hparams
         )
         sampler = MultitaskSampler(
@@ -265,18 +271,18 @@ logger = logging.getLogger(__name__)
 
 class LoggingCallback(pl.Callback):
     def on_validation_end(self, trainer, pl_module):
-        logger.info('***** Validation results *****')
+        logger.info("***** Validation results *****")
 
         if pl_module.is_logger():
             metrics = trainer.callback_metrics
 
             # Log results
             for key in sorted(metrics):
-                if key not in ['log', 'progress_bar']:
-                    logger.info('{} = {}\n'.format(key, str(metrics[key])))
+                if key not in ["log", "progress_bar"]:
+                    logger.info("{} = {}\n".format(key, str(metrics[key])))
 
     def on_test_end(self, trainer, pl_module):
-        logger.info('***** Test results *****')
+        logger.info("***** Test results *****")
 
         if pl_module.is_logger():
             metrics = trainer.callback_metrics
@@ -284,23 +290,23 @@ class LoggingCallback(pl.Callback):
             # Log and save results to file
             output_test_results_file = os.path.join(
                 pl_module.hparams.output_dir,
-                'test_results.txt'
+                "test_results.txt"
             )
 
-            with open(output_test_results_file, 'w') as writer:
+            with open(output_test_results_file, "w") as writer:
                 for key in sorted(metrics):
-                    if key not in ['log', 'progress_bar']:
-                        logger.info('{} = {}\n'.format(key, str(metrics[key])))
+                    if key not in ["log", "progress_bar"]:
+                        logger.info("{} = {}\n".format(key, str(metrics[key])))
                         writer.write(
-                            '{} = {}\n'.format(key, str(metrics[key]))
+                            "{} = {}\n".format(key, str(metrics[key]))
                         )
 
 
 args_dict = dict(
-    data_dir='',  # path for data files
-    output_dir='',  # path to save the checkpoints
-    model_name_or_path='facebook/bart-large',
-    tokenizer_name_or_path='facebook/bart-large',
+    data_dir="",  # path for data files
+    output_dir="",  # path to save the checkpoints
+    model_name_or_path="facebook/bart-large",
+    tokenizer_name_or_path="facebook/bart-large",
     max_seq_length=512,
     learning_rate=3e-4,
     weight_decay=0.0,
@@ -313,8 +319,8 @@ args_dict = dict(
     n_gpu=1,
     early_stop_callback=False,
     fp_16=False,  # if you want to enable 16-bit training then install apex and set this to true
-    opt_level='O1',  # you can find out more on optimisation levels here https://nvidia.github.io/apex/amp.html#opt-levels-and-properties
-    # if you enable 16-bit training then set this to a sensible value, 0.5 is a good default
-    max_grad_norm=1.0,
-    seed=42
+    opt_level="O1",  # you can find out more on optimisation levels here https://nvidia.github.io/apex/amp.html#opt-levels-and-properties
+    max_grad_norm=1.0, # if you enable 16-bit training then set this to a sensible value, 0.5 is a good default
+    seed=42,
+    label_smoothing=0.1
 )

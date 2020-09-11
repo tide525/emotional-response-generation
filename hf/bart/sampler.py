@@ -60,5 +60,6 @@ class MultitaskSampler(Sampler):
             )
         else:
             return (
-                (len(self.data_source) + self.batch_size - 1) // self.batch_size
+                (len(self.data_source) + self.batch_size - 1)
+                // self.batch_size
             )
