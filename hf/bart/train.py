@@ -33,7 +33,6 @@ checkpoint_callback = pl.callbacks.ModelCheckpoint(
     prefix='checkpoint',
     monitor='val_loss',
     mode='min',
-    save_top_k=5
 )
 
 train_params = dict(

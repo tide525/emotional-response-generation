@@ -25,6 +25,7 @@ args_dict.update(dict(
     learning_rate=3e-5,
     weight_decay=0.01,
     warmup_steps=500,
+    num_train_epochs=8,
     max_grad_norm=0.1
 ))
 args = argparse.Namespace(**args_dict)
@@ -34,7 +35,6 @@ checkpoint_callback = pl.callbacks.ModelCheckpoint(
     prefix='checkpoint',
     monitor='val_loss',
     mode='min',
-    save_top_k=5
 )
 
 train_params = dict(
