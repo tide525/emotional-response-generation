@@ -30,7 +30,7 @@ def sentence_ent(sentence, n=4):
 
 pred_file = sys.argv[1]
 
-with open(pred_file, encoding='utf-8') as f:
+with open(pred_file) as f:
     preds = [line.strip() for line in f]
 
 for i in range(4):

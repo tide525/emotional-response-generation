@@ -40,7 +40,7 @@ def sentence_dist(sentence, n):
 
 pred_file = sys.argv[1]
 
-with open(pred_file, encoding='utf-8') as f:
+with open(pred_file) as f:
     preds = [line.strip() for line in f]
 
 for i in range(2):

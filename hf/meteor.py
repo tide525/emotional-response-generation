@@ -1,4 +1,3 @@
-import os
 import sys
 
 from nltk.tokenize import word_tokenize
@@ -8,12 +7,12 @@ target_file = sys.argv[1]
 pred_file = sys.argv[2]
 
 list_of_references = []
-with open(target_file, encoding='utf-8') as f:
+with open(target_file) as f:
     for line in f:
         list_of_references.append([line.strip()])
 
 hypotheses = []
-with open(pred_file, encoding='utf-8') as f:
+with open(pred_file) as f:
     for line in f:
         hypotheses.append(line.strip())
 
