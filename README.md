@@ -17,6 +17,7 @@
 
 ### Emotion recognition
 
+- CrowdFlower (https://data.world/crowdflower/sentiment-analysis-in-text)
 - Hashtag Emotion Corpus (http://saifmohammad.com/WebPages/SentimentEmotionLabeledData.html)
 - Unify Emotion Datasets (https://github.com/sarnthil/unify-emotion-datasets)
 
