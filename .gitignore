@@ -4,3 +4,6 @@ fairseq/bart.large*
 fairseq/crawled/
 
 hf/data/*/
+
+!hf/data/dd/
+hf/data/dd/*/*/
