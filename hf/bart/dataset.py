@@ -3,10 +3,26 @@ import os
 import torch
 from torch.utils.data import Dataset
 
-data_dict = {'emotion': 'tec', 'response': 'dd_dial_ne', 'sentiment': 'sst2_qtr'}
+data_dict = {
+    'emotion': 'tec',
+    'response': os.path.join('dd', 'dial', 'ne'),
+    'sentiment': 'sst2_qtr'
+}
 
 emotions = ['anger', 'disgust', 'fear', 'happiness', 'sadness', 'surprise']
 sentiments = ['positive', 'negative']
+
+
+def label_map(task, target):
+    if task == 'emotion':
+        if target == 'joy':
+            target = 'happiness'
+        label = emotions.index(target)
+    elif task == 'sentiment':
+        label = int(target)
+    else:
+        raise ValueError("The dataset contains an invalid task.")
+    return label
 
 
 class MultitaskDataset(Dataset):
@@ -80,17 +96,7 @@ class MultitaskDataset(Dataset):
                             truncation=True
                         )
                     else:
-                        if task == 'emotion':
-                            if target == 'joy':
-                                target = 'happiness'
-                            label = emotions.index(target)
-                        elif task == 'sentiment':
-                            label = int(target)
-                        else:
-                            raise ValueError(
-                                "A task must be emotion, "
-                                "response or sentiment."
-                            )
+                        label = label_map(task, target)
                         tokenized_targets = {
                             'input_ids': torch.tensor([[label]]),
                             'attention_mask': torch.tensor([[1]])

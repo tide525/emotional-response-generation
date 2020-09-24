@@ -1,14 +1,22 @@
 import os
+import re
 import sys
 
-input_path = sys.argv[1]
-output_dir = sys.argv[2]
+in_path = sys.argv[1]
+out_path = os.path.join(sys.argv[2], '{}.{}')
 
 pairs = []
-with open(input_path) as f:
+with open(in_path) as f:
     for line in f:
-        text, emotion = line.split('\t', maxsplit=1)[1].rsplit('\t', maxsplit=1)
-        pairs.append((text, emotion[3:].strip()))
+        text, emo = line.split('\t', maxsplit=1)[1].rsplit('\t', maxsplit=1)
+
+        # clean text
+        while re.search(r'^@\w+\s+', text):
+            text = re.sub(r'^@\w+\s+', '', text)
+        while re.search(r'\s+#\w+$', text):
+            text = re.sub(r'\s+#\w+$', '', text)
+
+        pairs.append((text, emo[3:].strip()))
 
 val_size = len(pairs) // 10
 train_size = len(pairs) - 2 * val_size
@@ -21,7 +29,6 @@ list_of_pairs = [
 
 for i, split in enumerate(['train', 'val', 'test']):
     for j, lang in enumerate(['source', 'target']):
-        output_path = os.path.join(output_dir, split + '.' + lang)
-        with open(output_path, 'w') as f:
+        with open(out_path.format(split, lang), 'w') as f:
             for k in range(len(list_of_pairs[i])):
                 f.write(list_of_pairs[i][k][j] + '\n')
