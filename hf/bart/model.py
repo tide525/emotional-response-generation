@@ -5,6 +5,7 @@ import random
 import numpy as np
 import pytorch_lightning as pl
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from transformers import (
     AdamW, BartTokenizer, get_linear_schedule_with_warmup,
@@ -133,9 +134,38 @@ class MultitaskBartFinetuner(pl.LightningModule):
             )
             loss = outputs[0]
 
-        else:
-            raise ValueError("A task must be emotion, response or sentiment.")
+        elif batch["task"][0] == "response_emotion":
+            pad_token_id = self.tokenizer.pad_token_id
+            target_ids = batch["target_ids"]
 
+            decoder_input_ids = shift_tokens_right(target_ids, pad_token_id)
+
+            outputs = self(
+                input_ids=batch["source_ids"],
+                attention_mask=batch["source_mask"],
+                decoder_input_ids=decoder_input_ids,
+                use_cache=False,
+                task=batch["task"][0]
+            )
+
+            lprobs = torch.nn.functional.log_softmax(outputs[1], dim=-1)
+            response_loss, nll_loss = label_smoothed_nll_loss(
+                lprobs,
+                target_ids,
+                self.hparams.label_smoothing,
+                ignore_index=pad_token_id
+            )
+
+            emotion_loss = F.cross_entropy(
+                outputs[0].view(-1, self.model.num_emotions),
+                batch['label'].view(-1)
+            )
+
+            loss = response_loss + emotion_loss
+
+        else:
+            raise ValueError("The dataset contains an invalid task.")
+        
         return loss
 
     def training_step(self, batch, batch_idx):

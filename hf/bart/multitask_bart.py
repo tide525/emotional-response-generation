@@ -149,8 +149,52 @@ class BartForMultitaskLearning(PretrainedBartModel):
                 )
                 outputs = (loss,) + outputs
         
+        elif task == 'response_emotion':
+            x = outputs[0]  # last hidden state
+
+            eos_mask = input_ids.eq(self.config.eos_token_id)
+            if len(torch.unique(eos_mask.sum(1))) > 1:
+                raise ValueError(
+                   "All examples must have the same number of <eos> tokens."
+                )
+
+            lm_logits = F.linear(
+                outputs[0],
+                self.model.shared.weight,
+                bias=self.final_logits_bias
+            )
+            outputs = (lm_logits,) + outputs[1:]  # Add cache, hidden states and attention if they are here
+
+            sentence_representation = x[eos_mask, :].view(
+                x.size(0),
+                -1,
+                x.size(-1)
+            )[:, -1, :]
+            logits = self.emotion_head(sentence_representation)
+
+            # Prepend logits
+            outputs = (logits,) + outputs#[1:]  # Add hidden states and attention if they are here
+
+            if labels is not None:  # prepend loss to output,
+                loss_fct = nn.CrossEntropyLoss()
+                # TODO(SS): do we need to ignore pad tokens in labels?
+                masked_lm_loss = loss_fct(
+                    lm_logits.view(-1, self.config.vocab_size),
+                    labels.view(-1)
+                )
+                outputs = (masked_lm_loss,) + outputs
+
+                loss = F.cross_entropy(
+                    logits.view(-1, self.num_emotions),
+                    labels.view(-1)
+                )
+                outputs = (loss,) + outputs
+
+                loss_sum = masked_lm_loss + loss
+                outputs = (loss_sum,) + outputs
+
         else:
-            raise ValueError("A task must be emotion, response or sentiment.")
+            raise ValueError("The dataset contains an invalid task.")
 
         return outputs
 

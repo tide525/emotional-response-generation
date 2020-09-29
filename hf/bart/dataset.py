@@ -6,7 +6,9 @@ from torch.utils.data import Dataset
 data_dict = {
     'emotion': 'tec',
     'response': os.path.join('dd', 'dial', 'ne'),
-    'sentiment': 'sst2_qtr'
+    'sentiment': 'sst2_qtr',
+
+    'response_emotion': os.path.join('dd', 'dial_emo', 'wo_ne'),
 }
 
 emotions = ['anger', 'disgust', 'fear', 'happiness', 'sadness', 'surprise']
@@ -50,12 +52,18 @@ class MultitaskDataset(Dataset):
         # might need to squeeze
         target_mask = self.targets[index]['attention_mask'].squeeze(0)
 
+        if 'label' in self.targets[index]:
+            label = self.targets[index]['label'].squeeze(0)
+        else:
+            label = torch.tensor([[0]]).squeeze(0)
+
         return {
             'task': task,
             'source_ids': source_ids,
             'source_mask': src_mask,
             'target_ids': target_ids,
-            'target_mask': target_mask
+            'target_mask': target_mask,
+            'label': label
         }
 
     def _build(self, tasks, data_dir, type_path):
@@ -95,6 +103,20 @@ class MultitaskDataset(Dataset):
                             return_tensors='pt',
                             truncation=True
                         )
+                    elif task == 'response_emotion':
+                        target, label = target.rsplit('\t', maxsplit=1)
+                        label = int(label) - 1
+                        
+                        # tokenize targets
+                        tokenized_targets = self.tokenizer.batch_encode_plus(
+                            [target],
+                            max_length=self.max_len,
+                            pad_to_max_length=True,
+                            return_tensors='pt',
+                            truncation=True
+                        )
+
+                        tokenized_targets['label'] = torch.tensor([[label]])
                     else:
                         label = label_map(task, target)
                         tokenized_targets = {
