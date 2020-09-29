@@ -129,7 +129,7 @@ class MultitaskBartFinetuner(pl.LightningModule):
             outputs = self(
                 input_ids=batch["source_ids"],
                 attention_mask=batch["source_mask"],
-                lm_labels=batch["target_ids"],
+                lm_labels=batch["target_label"],
                 task=batch["task"][0]
             )
             loss = outputs[0]
@@ -158,14 +158,14 @@ class MultitaskBartFinetuner(pl.LightningModule):
 
             emotion_loss = F.cross_entropy(
                 outputs[0].view(-1, self.model.num_emotions),
-                batch['label'].view(-1)
+                batch['target_label'].view(-1)
             )
 
             loss = response_loss + emotion_loss
 
         else:
             raise ValueError("The dataset contains an invalid task.")
-        
+
         return loss
 
     def training_step(self, batch, batch_idx):

@@ -23,7 +23,7 @@ args_dict.update(dict(
     learning_rate=3e-5,
     weight_decay=0.01,
     warmup_steps=500,
-    num_train_epochs=8,
+    num_train_epochs=2,
     max_grad_norm=0.1
 ))
 args = argparse.Namespace(**args_dict)

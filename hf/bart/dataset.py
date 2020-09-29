@@ -20,10 +20,16 @@ def label_map(task, target):
         if target == 'joy':
             target = 'happiness'
         label = emotions.index(target)
+
     elif task == 'sentiment':
         label = int(target)
+
+    elif task == 'response_emotion':
+        label = int(target) - 1
+
     else:
         raise ValueError("The dataset contains an invalid task.")
+
     return label
 
 
@@ -34,6 +40,7 @@ class MultitaskDataset(Dataset):
         self.inputs = []
         self.targets = []
 
+        self.labels = []
         self.tasks = []
 
         self._build(tasks, data_dir, type_path)
@@ -44,26 +51,21 @@ class MultitaskDataset(Dataset):
     def __getitem__(self, index):
         task = self.tasks[index]
 
-        source_ids = self.inputs[index]['input_ids'].squeeze(0)
-        target_ids = self.targets[index]['input_ids'].squeeze(0)
+        source_ids = self.inputs[index]['input_ids'].squeeze()
+        source_mask = self.inputs[index]['attention_mask'].squeeze()  # might need to squeeze
 
-        # might need to squeeze
-        src_mask = self.inputs[index]['attention_mask'].squeeze(0)
-        # might need to squeeze
-        target_mask = self.targets[index]['attention_mask'].squeeze(0)
+        target_ids = self.targets[index]['input_ids'].squeeze()
+        target_mask = self.targets[index]['attention_mask'].squeeze()  # might need to squeeze
 
-        if 'label' in self.targets[index]:
-            label = self.targets[index]['label'].squeeze(0)
-        else:
-            label = torch.tensor([[0]]).squeeze(0)
+        target_label = self.labels[index]
 
         return {
             'task': task,
             'source_ids': source_ids,
-            'source_mask': src_mask,
+            'source_mask': source_mask,
             'target_ids': target_ids,
             'target_mask': target_mask,
-            'label': label
+            'target_label': target_label
         }
 
     def _build(self, tasks, data_dir, type_path):
@@ -73,9 +75,11 @@ class MultitaskDataset(Dataset):
                 data_dict[task],
                 type_path + '.source'
             )
+
             with open(input_path) as f:
                 for line in f:
                     input_ = line.strip()
+
                     # tokenize inputs
                     tokenized_inputs = self.tokenizer.batch_encode_plus(
                         [input_],
@@ -84,6 +88,7 @@ class MultitaskDataset(Dataset):
                         return_tensors='pt',
                         truncation=True
                     )
+
                     self.inputs.append(tokenized_inputs)
 
             target_path = os.path.join(
@@ -91,37 +96,31 @@ class MultitaskDataset(Dataset):
                 data_dict[task],
                 type_path + '.target'
             )
+
             with open(target_path) as f:
                 for line in f:
-                    target = line.strip()
-                    if task == 'response':
-                        # tokenize targets
-                        tokenized_targets = self.tokenizer.batch_encode_plus(
-                            [target],
-                            max_length=self.max_len,
-                            pad_to_max_length=True,
-                            return_tensors='pt',
-                            truncation=True
-                        )
-                    elif task == 'response_emotion':
-                        target, label = target.rsplit('\t', maxsplit=1)
-                        label = int(label) - 1
-                        
-                        # tokenize targets
-                        tokenized_targets = self.tokenizer.batch_encode_plus(
-                            [target],
-                            max_length=self.max_len,
-                            pad_to_max_length=True,
-                            return_tensors='pt',
-                            truncation=True
-                        )
+                    target = ' '
+                    label = -1
 
-                        tokenized_targets['label'] = torch.tensor([[label]])
+                    if task == 'response':
+                        target = line.rstrip()
+
+                    elif task == 'response_emotion':
+                        target, label = line.rstrip().rsplit('\t', maxsplit=1)
+                        label = label_map(task, label)
+
                     else:
-                        label = label_map(task, target)
-                        tokenized_targets = {
-                            'input_ids': torch.tensor([[label]]),
-                            'attention_mask': torch.tensor([[1]])
-                        }
+                        label = label_map(task, line.rstrip())
+
+                    # tokenize targets
+                    tokenized_targets = self.tokenizer.batch_encode_plus(
+                        [target],
+                        max_length=self.max_len,
+                        pad_to_max_length=True,
+                        return_tensors='pt',
+                        truncation=True
+                    )
                     self.targets.append(tokenized_targets)
+                    self.labels.append(torch.tensor([label]))
+
                     self.tasks.append(task)
