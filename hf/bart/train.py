@@ -19,11 +19,14 @@ os.mkdir(output_dir)
 args_dict.update(dict(
     data_dir='../data',
     output_dir=output_dir,
-    max_seq_length=256,
+    max_seq_length=64,
     learning_rate=3e-5,
     weight_decay=0.01,
     warmup_steps=500,
-    num_train_epochs=2,
+    train_batch_size=32,
+    eval_batch_size=32,
+    num_train_epochs=8,
+    gradient_accumulation_steps=4,
     max_grad_norm=0.1
 ))
 args = argparse.Namespace(**args_dict)
@@ -33,6 +36,8 @@ checkpoint_callback = pl.callbacks.ModelCheckpoint(
     prefix='checkpoint',
     monitor='val_loss',
     mode='min',
+    save_last=True,
+    save_top_k=0
 )
 
 train_params = dict(
