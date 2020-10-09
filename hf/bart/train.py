@@ -8,7 +8,9 @@ import pytorch_lightning as pl
 from dataset import MultitaskDataset
 from model import MultitaskBartFinetuner, LoggingCallback, args_dict
 
-tasks = sys.argv[1:-1]
+tasks = sys.argv[1:-2]
+num_train_epochs = int(sys.argv[-2])
+
 model_name = sys.argv[-1]
 
 output_dir = os.path.join('output', model_name)
@@ -25,7 +27,7 @@ args_dict.update(dict(
     warmup_steps=500,
     train_batch_size=32,
     eval_batch_size=32,
-    num_train_epochs=8,
+    num_train_epochs=num_train_epochs,
     gradient_accumulation_steps=4,
     max_grad_norm=0.1
 ))

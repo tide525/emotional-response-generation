@@ -9,7 +9,10 @@ from dataset import MultitaskDataset
 from model import MultitaskBartFinetuner, LoggingCallback, args_dict
 
 from_model_name = sys.argv[1]
-tasks = sys.argv[2:-1]
+
+tasks = sys.argv[2:-2]
+num_train_epochs = int(sys.argv[-2])
+
 model_name = sys.argv[-1]
 
 output_dir = os.path.join('output', model_name)
@@ -21,11 +24,14 @@ args_dict.update(dict(
     data_dir='../data',
     output_dir=output_dir,
     model_name_or_path=os.path.join('model', from_model_name),
-    max_seq_length=256,
+    max_seq_length=64,
     learning_rate=3e-5,
     weight_decay=0.01,
     warmup_steps=500,
-    num_train_epochs=8,
+    train_batch_size=32,
+    eval_batch_size=32,
+    num_train_epochs=num_train_epochs,
+    gradient_accumulation_steps=4,
     max_grad_norm=0.1
 ))
 args = argparse.Namespace(**args_dict)
@@ -35,6 +41,8 @@ checkpoint_callback = pl.callbacks.ModelCheckpoint(
     prefix='checkpoint',
     monitor='val_loss',
     mode='min',
+    save_last=True,
+    save_top_k=0
 )
 
 train_params = dict(
