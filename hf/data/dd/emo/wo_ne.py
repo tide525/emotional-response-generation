@@ -18,7 +18,7 @@ for split in ['train', 'validation', 'test']:
 
             for text, emo in zip(texts, emos):
                 if int(emo) > 0:
-                    pairs.append([text.strip(), int(emo)])
+                    pairs.append([text.strip(), int(emo) - 1])
     
     if split == 'validation':
         split = 'val'

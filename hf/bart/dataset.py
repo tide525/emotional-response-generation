@@ -4,8 +4,8 @@ import torch
 from torch.utils.data import Dataset
 
 data_dict = {
-    'emotion': 'tec',
-    'response': os.path.join('dd', 'dial', 'ne'),
+    'emotion': os.path.join('dd', 'emo', 'wo_ne'),
+    'response': os.path.join('dd', 'dial', 'full'),
     'sentiment': 'sst2_qtr',
 
     'response_emotion': os.path.join('dd', 'dial_emo', 'wo_ne'),
@@ -13,24 +13,6 @@ data_dict = {
 
 emotions = ['anger', 'disgust', 'fear', 'happiness', 'sadness', 'surprise']
 sentiments = ['positive', 'negative']
-
-
-def label_map(task, target):
-    if task == 'emotion':
-        if target == 'joy':
-            target = 'happiness'
-        label = emotions.index(target)
-
-    elif task == 'sentiment':
-        label = int(target)
-
-    elif task == 'response_emotion':
-        label = int(target) - 1
-
-    else:
-        raise ValueError("The dataset contains an invalid task.")
-
-    return label
 
 
 class MultitaskDataset(Dataset):
@@ -104,13 +86,12 @@ class MultitaskDataset(Dataset):
 
                     if task == 'response':
                         target = line.rstrip()
-
-                    elif task == 'response_emotion':
-                        target, label = line.rstrip().rsplit('\t', maxsplit=1)
-                        label = label_map(task, label)
-
                     else:
-                        label = label_map(task, line.rstrip())
+                        if task == 'response_emotion':
+                            target, label = line.rstrip().rsplit('\t', maxsplit=1)
+                        else:
+                            label = line.rstrip()
+                        label = int(label)
 
                     # tokenize targets
                     tokenized_targets = self.tokenizer.batch_encode_plus(

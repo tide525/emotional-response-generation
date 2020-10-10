@@ -8,30 +8,21 @@ import pytorch_lightning as pl
 from dataset import MultitaskDataset
 from model import MultitaskBartFinetuner, LoggingCallback, args_dict
 
-tasks = sys.argv[1:-2]
-num_train_epochs = int(sys.argv[-2])
+parser = argparse.ArgumentParser()
 
-model_name = sys.argv[-1]
+for name, default in args_dict.items():
+    if name in ['data_dir', 'output_dir']:
+        parser.add_argument(name, type=str)
+    else:
+        parser.add_argument('--' + name, type=type(default), default=default)
 
-output_dir = os.path.join('output', model_name)
-if os.path.isdir(output_dir):
-    shutil.rmtree(output_dir)
-os.mkdir(output_dir)
+parser.add_argument('--tasks', default='')
 
-args_dict.update(dict(
-    data_dir='../data',
-    output_dir=output_dir,
-    max_seq_length=64,
-    learning_rate=3e-5,
-    weight_decay=0.01,
-    warmup_steps=500,
-    train_batch_size=32,
-    eval_batch_size=32,
-    num_train_epochs=num_train_epochs,
-    gradient_accumulation_steps=4,
-    max_grad_norm=0.1
-))
-args = argparse.Namespace(**args_dict)
+args = parser.parse_args()
+
+if os.path.isdir(args.output_dir):
+    shutil.rmtree(args.output_dir)
+os.mkdir(args.output_dir)
 
 checkpoint_callback = pl.callbacks.ModelCheckpoint(
     filepath=args.output_dir,
@@ -39,7 +30,7 @@ checkpoint_callback = pl.callbacks.ModelCheckpoint(
     monitor='val_loss',
     mode='min',
     save_last=True,
-    save_top_k=0
+    save_top_k=1
 )
 
 train_params = dict(
@@ -57,7 +48,7 @@ train_params = dict(
 
 def get_dataset(tokenizer, type_path, args):
     return MultitaskDataset(
-        tasks=tasks,
+        tasks=args.tasks.split(','),
         tokenizer=tokenizer,
         data_dir=args.data_dir,
         type_path=type_path,
@@ -74,9 +65,4 @@ trainer = pl.Trainer(**train_params)
 # start fine-tuning
 trainer.fit(model)
 
-model_dir = os.path.join('model', model_name)
-if os.path.isdir(model_dir):
-    shutil.rmtree(model_dir)
-os.mkdir(model_dir)
-
-model.model.save_pretrained(model_dir)
+model.model.save_pretrained(args.output_dir)

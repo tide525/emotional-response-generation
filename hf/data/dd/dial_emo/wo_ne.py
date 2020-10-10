@@ -18,7 +18,10 @@ for split in ['train', 'validation', 'test']:
 
             for i in range(len(texts) - 1):
                 if int(emos[i]) > 0:
-                    pairs.append([[texts[i].strip()], [texts[i+1].strip(), emos[i]]])
+                    pairs.append([
+                        [texts[i].strip()],
+                        [texts[i+1].strip(), str(int(emos[i]) - 1)]
+                    ])
     
     if split == 'validation':
         split = 'val'
