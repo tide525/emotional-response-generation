@@ -2,8 +2,8 @@ import os
 import sys
 from tqdm.auto import tqdm
 
-from transformers import BartTokenizer
 from torch.utils.data import DataLoader
+from transformers import BartTokenizer
 
 from multitask_bart import BartForMultitaskLearning
 from dataset import MultitaskDataset

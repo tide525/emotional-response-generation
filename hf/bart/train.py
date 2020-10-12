@@ -16,7 +16,8 @@ for name, default in args_dict.items():
     else:
         parser.add_argument('--' + name, type=type(default), default=default)
 
-parser.add_argument('--tasks', default='')
+parser.add_argument('--num_train_steps', type=int, default=None)
+parser.add_argument('--tasks', type=str, default='')
 
 args = parser.parse_args()
 
@@ -37,6 +38,7 @@ train_params = dict(
     accumulate_grad_batches=args.gradient_accumulation_steps,
     gpus=args.n_gpu,
     max_epochs=args.num_train_epochs,
+    max_steps=args.num_train_steps,
     early_stop_callback=False,
     precision=16 if args.fp_16 else 32,
     amp_level=args.opt_level,
