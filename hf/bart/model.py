@@ -14,7 +14,7 @@ from transformers.modeling_bart import shift_tokens_right
 
 
 from multitask_bart import BartForMultitaskLearning
-from sampler import MultitaskSampler
+from sampler import MultitaskSampler, WeightedMultitaskSampler
 
 
 def set_seed(seed):
@@ -251,11 +251,24 @@ class MultitaskBartFinetuner(pl.LightningModule):
             type_path="train",
             args=self.hparams
         )
-        sampler = MultitaskSampler(
-            data_source=train_dataset,
-            batch_size=self.hparams.train_batch_size,
-            drop_last=True
-        )
+        if self.hparams.weights:
+            tasks = self.hparams.tasks.split(',')
+            weights = [
+                int(weight) for weight in self.hparams.weights.split(',')
+            ]
+            sampler = WeightedMultitaskSampler(
+                tasks=tasks,
+                weights=weights,
+                data_source=train_dataset,
+                batch_size=self.hparams.train_batch_size,
+                drop_last=False
+            )
+        else:
+            sampler = MultitaskSampler(
+                data_source=train_dataset,
+                batch_size=self.hparams.train_batch_size,
+                drop_last=False
+            )
         dataloader = DataLoader(
             dataset=train_dataset,
             batch_sampler=sampler,
@@ -285,11 +298,24 @@ class MultitaskBartFinetuner(pl.LightningModule):
             type_path="val",
             args=self.hparams
         )
-        sampler = MultitaskSampler(
-            data_source=val_dataset,
-            batch_size=self.hparams.train_batch_size,
-            drop_last=True
-        )
+        if self.hparams.weights:
+            tasks = self.hparams.tasks.split(',')
+            weights = [
+                int(weight) for weight in self.hparams.weights.split(',')
+            ]
+            sampler = WeightedMultitaskSampler(
+                tasks=tasks,
+                weights=weights,
+                data_source=val_dataset,
+                batch_size=self.hparams.train_batch_size,
+                drop_last=False
+            )
+        else:
+            sampler = MultitaskSampler(
+                data_source=val_dataset,
+                batch_size=self.hparams.train_batch_size,
+                drop_last=False
+            )
         return DataLoader(
             dataset=val_dataset,
             batch_sampler=sampler,

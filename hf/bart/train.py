@@ -18,6 +18,7 @@ for name, default in args_dict.items():
 
 parser.add_argument('--num_train_steps', type=int, default=None)
 parser.add_argument('--tasks', type=str, default='')
+parser.add_argument('--weights', type=str, default='')
 
 args = parser.parse_args()
 
