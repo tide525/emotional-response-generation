@@ -153,3 +153,34 @@ class WeightedMultitaskSampler(Sampler):
                     )
                 sum_samples += sum_sample
             return sum_samples
+
+
+class CurriculumSampler(Sampler):
+    def __init__(self, data_source, weights):
+        self.data_source = data_source
+        self.weights = torch.as_tensor(weights, dtype=torch.double)
+
+    def __iter__(self):
+        num_samples = len(self.data_source)
+
+        num_groups = len(self.weights)
+        nums_tensor = torch.as_tensor(
+            [(num_samples + i) // num_groups for i in range(num_groups)],
+            dtype=torch.int64
+        )
+        cums_tensor = torch.cumsum(
+            torch.cat((torch.zeros(1, dtype=torch.int64), nums_tensor), 0),
+            dim=0
+        )
+
+        rand_tensor = torch.multinomial(self.weights, num_samples, True)
+        for group in rand_tensor.tolist():
+            yield torch.randint(
+                cums_tensor[group],
+                high=cums_tensor[group+1],
+                size=(1,),
+                dtype=torch.int64
+            ).item()
+
+    def __len__(self):
+        return len(self.data_source)
