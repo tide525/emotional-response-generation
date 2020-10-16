@@ -1,3 +1,5 @@
+import random
+
 import torch
 from torch.utils.data import Sampler
 from torch._six import int_classes as _int_classes
@@ -184,3 +186,63 @@ class CurriculumSampler(Sampler):
 
     def __len__(self):
         return len(self.data_source)
+
+    # https://pytorch-lightning.readthedocs.io/en/stable/trainer.html#reload-dataloaders-every-epoch
+    def set_weights(self, weights):
+        self.weights = torch.as_tensor(weights, dtype=torch.double)
+
+
+class TaskCurriculumSampler(Sampler):
+    def __init__(self, data_source, batch_size, drop_last, tasks, weights):
+        self.data_source = data_source
+        self.batch_size = batch_size
+        self.drop_last = drop_last
+
+        self.tasks = tasks
+        self.weights = torch.as_tensor(weights, dtype=torch.double)
+
+        if len(self.tasks) != len(self.weights):
+            raise ValueError(
+                "the length of weights should be the same as that of tasks"
+            )
+
+    def __iter__(self):
+        num_samples = len(self.data_source)
+        num_tasks = len(self.tasks)
+
+        task_samples = [[] for _ in range(num_tasks)]
+        for i, data in enumerate(self.data_source):
+            task_samples[self.tasks.index(data['task'])].append(i)
+
+        if self.drop_last:
+            num_batches = len(self.data_source) // self.batch_size
+        else:
+            num_batches = (
+                (len(self.data_source) + self.batch_size - 1)
+                // self.batch_size
+            )
+
+        # determine a task to sample
+        rand_tensor = torch.multinomial(self.weights, num_batches, True)
+
+        rand_list = rand_tensor.tolist()
+        for b in rand_list[:-1]:
+            yield [
+                random.choice(task_samples[b])
+                for _ in range(self.batch_size)
+            ]
+        if not self.drop_last:
+            yield [
+                random.choice(task_samples[rand_list[-1]])
+                for _ in range(
+                    num_samples - (num_batches - 1) * self.batch_size
+                )
+            ]
+
+    def __len__(self):
+        if self.drop_last:
+            return len(self.data_source) // self.batch_size
+        return (
+            (len(self.data_source) + self.batch_size - 1)
+            // self.batch_size
+        )
