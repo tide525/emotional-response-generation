@@ -2,6 +2,9 @@ import os
 import logging
 import random
 
+from nltk.util import ngrams
+from nltk.tokenize import word_tokenize
+from nltk.translate.bleu_score import corpus_bleu
 import numpy as np
 import pytorch_lightning as pl
 import torch
@@ -12,7 +15,7 @@ from transformers import (
 )
 from transformers.modeling_bart import shift_tokens_right
 
-
+from dataset import data_dict, MultitaskDataset
 from multitask_bart import BartForMultitaskLearning
 from sampler import MultitaskSampler, WeightedMultitaskSampler
 
@@ -64,6 +67,29 @@ class MultitaskBartFinetuner(pl.LightningModule):
         self.tokenizer = BartTokenizer.from_pretrained(
             hparams.tokenizer_name_or_path
         )
+
+        # for calculating scores
+        if hparams.val_scoring:
+            score_dataset = MultitaskDataset(
+                tasks=['response'],
+                tokenizer = self.tokenizer,
+                data_dir=hparams.data_dir,
+                type_path='val',
+                max_len=hparams.max_seq_length
+            )
+            self.score_loader = DataLoader(
+                score_dataset,
+                batch_size=self.hparams.train_batch_size
+            )
+            self.list_of_references = []
+            ref_path = os.path.join(
+                hparams.data_dir,
+                data_dict['response'],
+                'val.target'
+            )
+            with open(ref_path) as f:
+                for line in f:
+                    self.list_of_references.append([word_tokenize(line)])
 
     def is_logger(self):
         return self.trainer.global_rank <= 0
@@ -189,6 +215,45 @@ class MultitaskBartFinetuner(pl.LightningModule):
     def validation_epoch_end(self, outputs):
         avg_loss = torch.stack([x["val_loss"] for x in outputs]).mean()
         tensorboard_logs = {"val_loss": avg_loss}
+
+        # calculate scores
+        if self.hparams.val_scoring:
+
+            # generate
+            self.model.eval()
+            hypotheses = []
+            for batch in self.score_loader:
+                outs = self.model.generate(
+                    input_ids=batch['source_ids'].cuda(),
+                    attention_mask=batch['source_mask'].cuda(), 
+                    max_length=256,
+                    num_beams=5,
+                    no_repeat_ngram_size=3,
+                    early_stopping=True,
+                    task=batch['task'][0]
+                )
+                decs = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in outs]
+                hypotheses.extend([word_tokenize(dec) for dec in decs])
+
+            # bleu
+            bleu = corpus_bleu(self.list_of_references, hypotheses)
+            
+            # dist
+            num_tokens = 0
+            unigrams_set = set()
+            bigrams_set = set()
+            for tokens in hypotheses:
+                num_tokens += len(tokens)
+                unigrams_set |= set(ngrams(tokens, 1))
+                bigrams_set |= set(ngrams(tokens, 2))
+            dist1 = len(unigrams_set) / num_tokens
+            dist2 = len(bigrams_set) / num_tokens
+
+            self.model.train()
+            tensorboard_logs['val_bleu'] = bleu
+            tensorboard_logs['val_dist1'] = dist1
+            tensorboard_logs['val_dist2'] = dist2
+
         return {
             "avg_val_loss": avg_loss,
             "log": tensorboard_logs,
