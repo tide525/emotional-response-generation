@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import Dataset
 
 data_dict = {
-    'emotion': os.path.join('dd', 'emo', 'wo_ne'),
+    'emotion': 'tec',
     'response': os.path.join('dd', 'dial', 'full'),
     'sentiment': 'sst2_qtr',
 
