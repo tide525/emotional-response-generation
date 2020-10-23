@@ -20,6 +20,8 @@ parser.add_argument('--num_train_steps', type=int, default=None)
 parser.add_argument('--tasks', type=str, default='')
 parser.add_argument('--weights', type=str, default='')
 
+parser.add_argument('--loss_weights', type=str, default='')
+
 parser.add_argument('--val_scoring', action='store_true')
 
 args = parser.parse_args()

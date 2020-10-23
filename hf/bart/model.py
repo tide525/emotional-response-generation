@@ -68,6 +68,21 @@ class MultitaskBartFinetuner(pl.LightningModule):
             hparams.tokenizer_name_or_path
         )
 
+        # for loss weighting
+        tasks = self.hparams.tasks.split(',')
+        if hparams.loss_weights:
+            loss_weights = [
+                float(weight)
+                for weight in self.hparams.loss_weights.split(',')
+            ]
+            assert len(tasks) == len(loss_weights)
+        else:
+            loss_weights = [1.0 for _ in tasks]
+        self.loss_weights_dict = {
+            task: loss_weight
+            for task, loss_weight in zip(tasks, loss_weights)
+        }
+
         # for calculating scores
         if hparams.val_scoring:
             score_dataset = MultitaskDataset(
@@ -151,6 +166,8 @@ class MultitaskBartFinetuner(pl.LightningModule):
                 ignore_index=pad_token_id
             )
 
+            loss = self.loss_weights_dict["response"] * loss
+
         elif batch["task"][0] in ["emotion", "sentiment"]:
             outputs = self(
                 input_ids=batch["source_ids"],
@@ -159,6 +176,8 @@ class MultitaskBartFinetuner(pl.LightningModule):
                 task=batch["task"][0]
             )
             loss = outputs[0]
+
+            loss = self.loss_weights_dict[batch["task"][0]] * loss
 
         elif batch["task"][0] == "response_emotion":
             pad_token_id = self.tokenizer.pad_token_id
@@ -184,10 +203,13 @@ class MultitaskBartFinetuner(pl.LightningModule):
 
             emotion_loss = F.cross_entropy(
                 outputs[0].view(-1, self.model.num_emotions),
-                batch['target_label'].view(-1)
+                batch["target_label"].view(-1)
             )
 
-            loss = response_loss + emotion_loss
+            loss = (
+                self.loss_weights_dict["response"] * response_loss
+                + self.loss_weights_dict["emotion"] * emotion_loss
+            )
 
         else:
             raise ValueError("The dataset contains an invalid task.")
