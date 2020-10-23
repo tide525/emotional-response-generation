@@ -54,3 +54,8 @@ https://nlp.stanford.edu/sentiment/index.html
 ### Amazon Mechanical Turk
 
 https://www.mturk.com/
+https://requester.mturk.com/
+
+https://docs.aws.amazon.com/sagemaker/latest/dg/sms-ui-template-reference.html
+
+https://morninj.github.io/mechanical-turk-cost-calculator/

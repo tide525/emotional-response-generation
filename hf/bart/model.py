@@ -17,7 +17,7 @@ from transformers.modeling_bart import shift_tokens_right
 
 from dataset import data_dict, MultitaskDataset
 from multitask_bart import BartForMultitaskLearning
-from sampler import MultitaskSampler, WeightedMultitaskSampler
+from sampler import MultitaskSampler, TaskCurriculumSampler
 
 
 def set_seed(seed):
@@ -68,20 +68,25 @@ class MultitaskBartFinetuner(pl.LightningModule):
             hparams.tokenizer_name_or_path
         )
 
+        self.tasks = self.hparams.tasks.split(',')
+
         # for loss weighting
-        tasks = self.hparams.tasks.split(',')
         if hparams.loss_weights:
             loss_weights = [
                 float(weight)
                 for weight in self.hparams.loss_weights.split(',')
             ]
-            assert len(tasks) == len(loss_weights)
+            assert len(self.tasks) == len(loss_weights)
         else:
-            loss_weights = [1.0 for _ in tasks]
+            loss_weights = [1.0 for _ in self.tasks]
         self.loss_weights_dict = {
             task: loss_weight
-            for task, loss_weight in zip(tasks, loss_weights)
+            for task, loss_weight in zip(self.tasks, loss_weights)
         }
+
+        # curriculum on tasks
+        self.epoch_count = 0
+        # self.task_weights = None
 
         # for calculating scores
         if hparams.val_scoring:
@@ -338,29 +343,38 @@ class MultitaskBartFinetuner(pl.LightningModule):
             type_path="train",
             args=self.hparams
         )
-        if self.hparams.weights:
-            tasks = self.hparams.tasks.split(',')
-            weights = [
-                int(weight) for weight in self.hparams.weights.split(',')
-            ]
-            sampler = WeightedMultitaskSampler(
-                tasks=tasks,
-                weights=weights,
+
+        if self.hparams.task_curriculum:
+            a = len(self.tasks)
+            x = np.arange(a)
+            p = 10 ** (
+                2 * self.epoch_count / self.hparams.num_train_epochs - 1
+            )
+            y = np.power(np.power(a, p) - np.power(x, p), 1 / p)  # r->s->e
+
+            assert len(self.tasks) == 3  # only for 3 tasks now
+            task_weights = [y[2], y[0], y[1]]  # e, r, s
+            sampler = TaskCurriculumSampler(
+                tasks=self.tasks,
+                weights=task_weights,
                 data_source=train_dataset,
                 batch_size=self.hparams.train_batch_size,
                 drop_last=False
             )
+            self.epoch_count += 1
         else:
             sampler = MultitaskSampler(
                 data_source=train_dataset,
                 batch_size=self.hparams.train_batch_size,
                 drop_last=False
             )
+
         dataloader = DataLoader(
             dataset=train_dataset,
             batch_sampler=sampler,
             num_workers=4
         )
+        
         t_total = (
             (
                 len(dataloader.dataset)
@@ -385,24 +399,13 @@ class MultitaskBartFinetuner(pl.LightningModule):
             type_path="val",
             args=self.hparams
         )
-        if self.hparams.weights:
-            tasks = self.hparams.tasks.split(',')
-            weights = [
-                int(weight) for weight in self.hparams.weights.split(',')
-            ]
-            sampler = WeightedMultitaskSampler(
-                tasks=tasks,
-                weights=weights,
-                data_source=val_dataset,
-                batch_size=self.hparams.train_batch_size,
-                drop_last=False
-            )
-        else:
-            sampler = MultitaskSampler(
-                data_source=val_dataset,
-                batch_size=self.hparams.train_batch_size,
-                drop_last=False
-            )
+
+        sampler = MultitaskSampler(
+            data_source=val_dataset,
+            batch_size=self.hparams.train_batch_size,
+            drop_last=False
+        )
+
         return DataLoader(
             dataset=val_dataset,
             batch_sampler=sampler,

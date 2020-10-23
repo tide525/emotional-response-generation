@@ -22,6 +22,7 @@ parser.add_argument('--weights', type=str, default='')
 
 parser.add_argument('--loss_weights', type=str, default='')
 
+parser.add_argument('--task_curriculum', action='store_true')
 parser.add_argument('--val_scoring', action='store_true')
 
 args = parser.parse_args()
@@ -49,7 +50,9 @@ train_params = dict(
     amp_level=args.opt_level,
     gradient_clip_val=args.max_grad_norm,
     checkpoint_callback=checkpoint_callback,
-    callbacks=[LoggingCallback()]
+    callbacks=[LoggingCallback()],
+
+    reload_dataloaders_every_epoch=args.task_curriculum
 )
 
 
