@@ -345,15 +345,20 @@ class MultitaskBartFinetuner(pl.LightningModule):
         )
 
         if self.hparams.task_curriculum:
-            a = len(self.tasks)
+            n = np.arange(len(self.tasks))
+            t = self.epoch_count / self.hparams.num_train_epochs
+            y = np.power(t, n)
+
+            """a = len(self.tasks)
             x = np.arange(a)
             p = 10 ** (
                 2 * self.epoch_count / self.hparams.num_train_epochs - 1
             )
             y = np.power(np.power(a, p) - np.power(x, p), 1 / p)  # r->s->e
+            """
 
             assert len(self.tasks) == 3  # only for 3 tasks now
-            task_weights = [y[2], y[0], y[1]]  # e, r, s
+            task_weights = [y[2], 4 * y[0], y[1]]  # e, r, s
             sampler = TaskCurriculumSampler(
                 tasks=self.tasks,
                 weights=task_weights,
