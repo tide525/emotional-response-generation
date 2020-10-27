@@ -7,3 +7,5 @@ hf/data/*/
 
 !hf/data/dd/
 hf/data/dd/*/*/
+
+hf/roberta/*.sh
