@@ -4,8 +4,9 @@ import shutil
 import sys
 
 import pytorch_lightning as pl
+from torch.utils.data import ConcatDataset
 
-from dataset import MultitaskDataset
+from dataset import TaskDataset
 from model import MultitaskBartFinetuner, LoggingCallback, args_dict
 
 parser = argparse.ArgumentParser()
@@ -18,11 +19,13 @@ for name, default in args_dict.items():
 
 parser.add_argument('--num_train_steps', type=int, default=None)
 parser.add_argument('--tasks', type=str, default='')
+parser.add_argument('--task_dirs', type=str, default='')
 parser.add_argument('--weights', type=str, default='')
 
 parser.add_argument('--loss_weights', type=str, default='')
 
 parser.add_argument('--task_curriculum', action='store_true')
+parser.add_argument('--sample_curriculum', action='store_true')
 parser.add_argument('--val_scoring', action='store_true')
 
 args = parser.parse_args()
@@ -52,18 +55,25 @@ train_params = dict(
     checkpoint_callback=checkpoint_callback,
     callbacks=[LoggingCallback()],
 
-    reload_dataloaders_every_epoch=args.task_curriculum
+    reload_dataloaders_every_epoch=(args.task_curriculum or args.sample_curriculum)
 )
 
 
 def get_dataset(tokenizer, type_path, args):
-    return MultitaskDataset(
-        tasks=args.tasks.split(','),
-        tokenizer=tokenizer,
-        data_dir=args.data_dir,
-        type_path=type_path,
-        max_len=args.max_seq_length
-    )
+    tasks = args.tasks.split(',')
+    task_dirs = args.task_dirs.split(',')
+    assert len(task_dirs) == len(tasks)
+    datasets = []
+    for task, task_dir in zip(tasks, task_dirs):
+        dataset = TaskDataset(
+            task,
+            tokenizer,
+            os.path.join(args.data_dir, task_dir),
+            type_path,
+            args.max_seq_length
+        )
+        datasets.append(dataset)
+    return ConcatDataset(datasets)
 
 
 # initialize model

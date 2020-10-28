@@ -15,9 +15,9 @@ from transformers import (
 )
 from transformers.modeling_bart import shift_tokens_right
 
-from dataset import data_dict, MultitaskDataset
+from dataset import data_dict, TaskDataset, MultitaskDataset
 from multitask_bart import BartForMultitaskLearning
-from sampler import MultitaskSampler, TaskCurriculumSampler
+from sampler import MultitaskSampler, TaskCurriculumSampler, CurriculumBatchSampler
 
 
 def set_seed(seed):
@@ -375,6 +375,21 @@ class MultitaskBartFinetuner(pl.LightningModule):
                 data_source=train_dataset,
                 batch_size=self.hparams.train_batch_size,
                 drop_last=False
+            )
+            self.epoch_count += 1
+        elif self.hparams.sample_curriculum:
+            n = torch.arange(10, dtype=torch.int64)
+            t = torch.full(
+                (10,),
+                self.epoch_count / self.hparams.num_train_epochs,
+                dtype=torch.int64
+            )
+            y = torch.pow(t, n)
+
+            sampler = CurriculumBatchSampler(
+                data_source=train_dataset,
+                batch_size=self.hparams.train_batch_size,
+                weights=y.tolist()
             )
             self.epoch_count += 1
         else:

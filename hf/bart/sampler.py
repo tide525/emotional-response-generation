@@ -157,6 +157,7 @@ class WeightedMultitaskSampler(Sampler):
             return sum_samples
 
 
+# https://pytorch-lightning.readthedocs.io/en/stable/trainer.html#reload-dataloaders-every-epoch
 class CurriculumSampler(Sampler):
     def __init__(self, data_source, weights):
         self.data_source = data_source
@@ -187,9 +188,54 @@ class CurriculumSampler(Sampler):
     def __len__(self):
         return len(self.data_source)
 
-    # https://pytorch-lightning.readthedocs.io/en/stable/trainer.html#reload-dataloaders-every-epoch
-    def set_weights(self, weights):
+
+class CurriculumBatchSampler(Sampler):
+    def __init__(self, data_source, batch_size, weights):
+        self.data_source = data_source
+        self.batch_size = batch_size
         self.weights = torch.as_tensor(weights, dtype=torch.double)
+
+    def __iter__(self):
+        num_groups = len(self.weights)
+        num_samples = len(self.data_source)
+
+        num_tensor = torch.as_tensor(
+            [
+                (num_samples + group_idx) // num_groups
+                for group_idx in range(num_groups)
+            ],
+            dtype=torch.int64
+        )
+        cum_tensor = torch.cumsum(
+            torch.cat(
+                (torch.zeros(1, dtype=torch.int64), num_tensor),
+                dim=0
+            ),
+            dim=0
+        )
+
+        num_batches = (num_samples - 1) // self.batch_size + 1
+        group_tensor = torch.multinomial(self.weights, num_batches, True)
+
+        for batch_idx in range(num_batches):
+            group_idx = group_tensor[batch_idx]
+            
+            num_sample = min(
+                num_samples - batch_idx * self.batch_size,
+                self.batch_size
+            )
+
+            sample_tensor = torch.randint(
+                cum_tensor[group_idx],
+                cum_tensor[group_idx+1],
+                size=(num_sample,),
+                dtype=torch.int64
+            )
+
+            yield sample_tensor.tolist()
+
+    def __len__(self):
+        return (len(self.data_source) - 1) // self.batch_size + 1
 
 
 class TaskCurriculumSampler(Sampler):
@@ -246,3 +292,82 @@ class TaskCurriculumSampler(Sampler):
             (len(self.data_source) + self.batch_size - 1)
             // self.batch_size
         )
+
+class TaskCurriculumBatchSampler(Sampler):
+    def __init__(self, data_source, batch_size, task_weights, group_weights):
+        self.data_source = data_source
+        self.batch_size = batch_size
+
+        self.task_weights = torch.as_tensor(task_weights, dtype=torch.double)
+        self.group_weights = torch.as_tensor(group_weights, dtype=torch.double)
+
+    def __iter__(self):
+        num_samples = len(self.data_source)
+        tasks = ['emotion', 'response', 'sentiment']
+
+        num_tasks = len(tasks)
+        assert len(self.task_weights) == num_tasks
+
+        task_num_tensor = torch.zeros(num_tasks, dtype=torch.int64)
+        for data in self.data_source:
+            task_idx = tasks.index(data['task'])
+            task_num_tensor[task_idx] += 1
+        task_cum_tensor = torch.cumsum(
+            torch.cat(
+                (torch.zeros(1, dtype=torch.int64), task_num_tensor),
+                dim=0
+            ),
+            dim=0
+        )
+
+        num_groups = len(self.group_weights)
+
+        group_num_tensor = torch.as_tensor(
+            [
+                [
+                    (num_samples + group_idx) // num_groups
+                    for group_idx in range(num_groups)
+                ]
+                for num_samples in task_num_tensor
+            ],
+            dtype=torch.int64
+        )
+        group_cum_tensor = (
+            torch.cumsum(
+                torch.cat(
+                    (
+                        torch.zeros((num_tasks, 1), dtype=torch.int64),
+                        group_num_tensor
+                    ),
+                    dim=1
+                ),
+                dim=1
+            )
+            + task_cum_tensor[:-1].unsqueeze(1)
+        )
+
+        num_batches = (num_samples - 1) // self.batch_size + 1
+
+        task_rand_tensor = torch.multinomial(self.task_weights, num_batches, True)
+        group_rand_tensor = torch.multinomial(self.group_weights, num_batches, True)
+
+        for batch_idx in range(num_batches):
+            task_idx = task_rand_tensor[batch_idx]
+            group_idx = group_rand_tensor[batch_idx]
+            
+            num_sample = min(
+                num_samples - batch_idx * self.batch_size,
+                self.batch_size
+            )
+
+            sample_rand_tensor = torch.randint(
+                group_cum_tensor[task_idx][group_idx],
+                group_cum_tensor[task_idx][group_idx + 1],
+                size=(num_sample,),
+                dtype=torch.int64
+            )
+
+            yield sample_rand_tensor.tolist()
+
+    def __len__(self):
+        return (len(self.data_source) - 1) // self.batch_size + 1
