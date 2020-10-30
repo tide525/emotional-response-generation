@@ -52,7 +52,7 @@ class TaskDataset(Dataset):
             for line in f:
                 # tokenize inputs
                 tokenized_inputs = self.tokenizer.batch_encode_plus(
-                    [line],
+                    [line.rstrip()],
                     max_length=self.max_len,
                     pad_to_max_length=True,
                     return_tensors='pt',
@@ -66,7 +66,7 @@ class TaskDataset(Dataset):
                 if self.task == 'response':
                     # tokenize targets
                     tokenized_targets = self.tokenizer.batch_encode_plus(
-                        [line],
+                        [line.rstrip()],
                         max_length=self.max_len,
                         pad_to_max_length=True,
                         return_tensors='pt',

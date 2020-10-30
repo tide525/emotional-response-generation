@@ -378,11 +378,11 @@ class MultitaskBartFinetuner(pl.LightningModule):
             )
             self.epoch_count += 1
         elif self.hparams.sample_curriculum:
-            n = torch.arange(10, dtype=torch.int64)
+            n = torch.arange(8, dtype=torch.int64)
             t = torch.full(
-                (10,),
+                (8,),
                 self.epoch_count / self.hparams.num_train_epochs,
-                dtype=torch.int64
+                dtype=torch.double
             )
             y = torch.pow(t, n)
 
