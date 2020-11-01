@@ -7,5 +7,6 @@ hf/data/*/
 
 !hf/data/dd/
 hf/data/dd/*/*/
+!hf/data/dd/dial/sorted/
 
 hf/roberta/*.sh

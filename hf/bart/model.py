@@ -86,7 +86,6 @@ class MultitaskBartFinetuner(pl.LightningModule):
 
         # curriculum on tasks
         self.epoch_count = 0
-        # self.task_weights = None
 
         # for calculating scores
         if hparams.val_scoring:
@@ -178,7 +177,7 @@ class MultitaskBartFinetuner(pl.LightningModule):
             outputs = self(
                 input_ids=batch["source_ids"],
                 attention_mask=batch["source_mask"],
-                lm_labels=batch["target_label"],
+                lm_labels=batch["target_ids"],
                 task=batch["task"][0]
             )
             loss = outputs[0]
@@ -355,43 +354,37 @@ class MultitaskBartFinetuner(pl.LightningModule):
         )
 
         if self.hparams.task_curriculum:
-            n = np.arange(len(self.tasks))
+            num_tasks = len(self.tasks)
+            assert num_tasks == 3  # only for 3 tasks so far
+            n = torch.arange(num_tasks, dtype=torch.int64)
             t = self.epoch_count / self.hparams.num_train_epochs
-            y = np.power(t, n)
-
-            """a = len(self.tasks)
-            x = np.arange(a)
+            y = torch.pow(t, n)
+            """x = torch.arange(num_tasks, dtype=torch.double) / num_tasks
             p = 10 ** (
                 2 * self.epoch_count / self.hparams.num_train_epochs - 1
             )
-            y = np.power(np.power(a, p) - np.power(x, p), 1 / p)  # r->s->e
+            y = torch.pow(1 - torch.pow(x, p), 1 / p)  # r->s->e
             """
-
-            assert len(self.tasks) == 3  # only for 3 tasks now
-            task_weights = [y[2], 4 * y[0], y[1]]  # e, r, s
+            weights = [y[2].item(), 4 * y[0].item(), y[1].item()]  # e->r->s
             sampler = TaskCurriculumSampler(
-                tasks=self.tasks,
-                weights=task_weights,
                 data_source=train_dataset,
                 batch_size=self.hparams.train_batch_size,
-                drop_last=False
+                tasks=self.tasks,
+                weights=weights
             )
             self.epoch_count += 1
+
         elif self.hparams.sample_curriculum:
             n = torch.arange(8, dtype=torch.int64)
-            t = torch.full(
-                (8,),
-                self.epoch_count / self.hparams.num_train_epochs,
-                dtype=torch.double
-            )
+            t = self.epoch_count / self.hparams.num_train_epochs
             y = torch.pow(t, n)
-
             sampler = CurriculumBatchSampler(
                 data_source=train_dataset,
                 batch_size=self.hparams.train_batch_size,
                 weights=y.tolist()
             )
             self.epoch_count += 1
+
         else:
             sampler = MultitaskSampler(
                 data_source=train_dataset,
