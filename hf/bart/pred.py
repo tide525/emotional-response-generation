@@ -23,7 +23,7 @@ for batch in tqdm(loader):
     outs = model.generate(
         input_ids=batch['source_ids'].cuda(),
         attention_mask=batch['source_mask'].cuda(), 
-        max_length=256,
+        max_length=64,
         num_beams=5,
         no_repeat_ngram_size=3,
         early_stopping=True,

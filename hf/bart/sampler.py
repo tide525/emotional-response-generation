@@ -1,4 +1,6 @@
+import math
 import random
+from collections import Counter
 
 import torch
 from torch.utils.data import Sampler
@@ -67,33 +69,22 @@ class MultitaskSampler(Sampler):
             )
 
 
-# https://pytorch-lightning.readthedocs.io/en/stable/trainer.html#reload-dataloaders-every-epoch
 class CurriculumSampler(Sampler):
-    def __init__(self, data_source, weights):
+    def __init__(self, data_source, step, num_steps):
         self.data_source = data_source
-        self.weights = torch.as_tensor(weights, dtype=torch.double)
+
+        self.step = step
+        self.num_steps = num_steps
 
     def __iter__(self):
         num_samples = len(self.data_source)
-
-        num_groups = len(self.weights)
-        nums_tensor = torch.as_tensor(
-            [(num_samples + i) // num_groups for i in range(num_groups)],
-            dtype=torch.int64
-        )
-        cums_tensor = torch.cumsum(
-            torch.cat((torch.zeros(1, dtype=torch.int64), nums_tensor), 0),
-            dim=0
+        weights = torch.pow(
+            min(0.1, self.step / self.num_steps),
+            torch.arange(num_samples, dtype=torch.double) / num_samples
         )
 
-        rand_tensor = torch.multinomial(self.weights, num_samples, True)
-        for group in rand_tensor.tolist():
-            yield torch.randint(
-                cums_tensor[group],
-                high=cums_tensor[group+1],
-                size=(1,),
-                dtype=torch.int64
-            ).item()
+        rand_tensor = torch.multinomial(weights, num_samples, replacement=True)
+        return iter(rand_tensor.tolist())
 
     def __len__(self):
         return len(self.data_source)
@@ -276,3 +267,41 @@ class TaskCurriculumBatchSampler(Sampler):
 
     def __len__(self):
         return (len(self.data_source) - 1) // self.batch_size + 1
+
+
+class CompetenceSampler(Sampler):
+    def __init__(self, data_source, difficulties, step, num_steps, init_competence):
+        self.data_source = data_source
+
+        self.difficulties = torch.as_tensor(difficulties, dtype=torch.double)
+        assert len(self.data_source) == len(self.difficulties)
+
+        self.step = step
+        self.num_steps = num_steps
+
+        self.init_competence = init_competence
+
+    def __iter__(self):
+        t, T = self.step, self.num_steps
+        c_0 = self.init_competence
+
+        i2d = self.difficulties
+
+        counter = Counter(i2d.tolist())
+        j2d = torch.as_tensor(list(counter), dtype=torch.double)
+        j2f = torch.as_tensor(list(counter.values()), dtype=torch.int64)
+
+        j2cdf = j2f.cumsum(dim=0, dtype=torch.double) / j2f.sum()
+
+        c = min(1, math.sqrt(t * (1 - c_0 ** 2) / T + c_0 ** 2))
+
+        j_max = ((j2cdf <= c).sum() - 1).item()
+        assert j_max >= 0
+        d_max = j2d[j_max]
+
+        i_max = ((i2d <= d_max).sum() - 1).item()
+
+        yield from torch.randint(high=i_max + 1, size=(len(self.data_source),), dtype=torch.int64).tolist()
+
+    def __len__(self):
+        return len(self.data_source)

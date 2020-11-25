@@ -25,8 +25,13 @@ parser.add_argument('--weights', type=str, default='')
 parser.add_argument('--loss_weights', type=str, default='')
 
 parser.add_argument('--task_curriculum', action='store_true')
-parser.add_argument('--sample_curriculum', action='store_true')
+parser.add_argument('--curriculum', action='store_true')
+
+parser.add_argument('--competence', action='store_true')
+
 parser.add_argument('--val_scoring', action='store_true')
+
+parser.add_argument('--adversarial', action='store_true')
 
 args = parser.parse_args()
 
@@ -55,7 +60,8 @@ train_params = dict(
     checkpoint_callback=checkpoint_callback,
     callbacks=[LoggingCallback()],
 
-    reload_dataloaders_every_epoch=(args.task_curriculum or args.sample_curriculum)
+    # https://pytorch-lightning.readthedocs.io/en/stable/trainer.html#reload-dataloaders-every-epoch
+    reload_dataloaders_every_epoch=(args.task_curriculum or args.curriculum or args.competence)
 )
 
 

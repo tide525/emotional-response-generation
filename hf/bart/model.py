@@ -9,15 +9,27 @@ import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
+import torch.optim as optim
+from torch.utils.data import DataLoader, BatchSampler
 from transformers import (
-    AdamW, BartTokenizer, get_linear_schedule_with_warmup,
+    AdamW,
+    BartTokenizer,
+    get_linear_schedule_with_warmup,
+    BartConfig   
 )
-from transformers.modeling_bart import shift_tokens_right
+from transformers.modeling_bart import (
+    shift_tokens_right,
+    BartClassificationHead
+)
 
 from dataset import data_dict, TaskDataset, MultitaskDataset
 from multitask_bart import BartForMultitaskLearning
-from sampler import MultitaskSampler, TaskCurriculumSampler, CurriculumBatchSampler
+from sampler import (
+    MultitaskSampler,
+    TaskCurriculumSampler,
+    CurriculumSampler,
+    CompetenceSampler
+)
 
 
 def set_seed(seed):
@@ -84,8 +96,32 @@ class MultitaskBartFinetuner(pl.LightningModule):
             for task, loss_weight in zip(self.tasks, loss_weights)
         }
 
+        # adversarial learning
+        if self.hparams.adversarial:
+            self.discriminator = BartClassificationHead(
+                self.model.config.d_model,
+                self.model.config.d_model,
+                2,
+                self.model.config.classif_dropout
+            )
+
         # curriculum on tasks
         self.epoch_count = 0
+
+        # competence
+        if self.hparams.competence:
+            self.difficulties = []
+            task_dir = self.hparams.task_dirs.split(',')[
+                self.hparams.tasks.split(',').index('response')
+            ]
+            diff_path = os.path.join(
+                hparams.data_dir,
+                os.path.join(self.hparams.data_dir, task_dir),
+                'train.in_ent'
+            )
+            with open(diff_path) as f:
+                for line in f:
+                    self.difficulties.append(float(line))
 
         # for calculating scores
         if hparams.val_scoring:
@@ -149,6 +185,9 @@ class MultitaskBartFinetuner(pl.LightningModule):
     """
 
     def _step(self, batch):
+        if self.hparams.adversarial:
+            labels = torch.tensor(int(batch["task"][0] != "response")).repeat(len(batch["task"]), 1).cuda()
+
         if batch["task"][0] == "response":
             pad_token_id = self.tokenizer.pad_token_id
             target_ids = batch["target_ids"]
@@ -173,6 +212,16 @@ class MultitaskBartFinetuner(pl.LightningModule):
 
             loss = self.loss_weights_dict["response"] * loss
 
+            if self.hparams.adversarial:
+                x = outputs[1]  # last hidden state
+                eos_mask = batch["source_ids"].eq(self.model.config.eos_token_id)
+                if len(torch.unique(eos_mask.sum(1))) > 1:
+                    raise ValueError("All examples must have the same number of <eos> tokens.")
+                sentence_representation = x[eos_mask, :].view(x.size(0), -1, x.size(-1))[:, -1, :]
+                logits = self.discriminator(sentence_representation)
+                loss = loss + F.cross_entropy(logits.view(-1, 2), labels.view(-1))
+
+
         elif batch["task"][0] in ["emotion", "sentiment"]:
             outputs = self(
                 input_ids=batch["source_ids"],
@@ -183,6 +232,15 @@ class MultitaskBartFinetuner(pl.LightningModule):
             loss = outputs[0]
 
             loss = self.loss_weights_dict[batch["task"][0]] * loss
+
+            if self.hparams.adversarial:
+                x = outputs[2]  # last hidden state
+                eos_mask = batch["source_ids"].eq(self.model.config.eos_token_id)
+                if len(torch.unique(eos_mask.sum(1))) > 1:
+                    raise ValueError("All examples must have the same number of <eos> tokens.")
+                sentence_representation = x[eos_mask, :].view(x.size(0), -1, x.size(-1))[:, -1, :]
+                logits = self.discriminator(sentence_representation)
+                loss = loss + F.cross_entropy(logits.view(-1, 2), labels.view(-1))
 
         elif batch["task"][0] == "response_emotion":
             pad_token_id = self.tokenizer.pad_token_id
@@ -221,13 +279,50 @@ class MultitaskBartFinetuner(pl.LightningModule):
 
         return loss
 
-    def training_step(self, batch, batch_idx):
-        loss = self._step(batch)
-        tensorboard_logs = {"train_loss": loss}
+    def _stepD(self, batch):
+        labels = torch.tensor(int(batch["task"][0] == "response")).repeat(len(batch["task"]), 1).cuda()
+
+        if batch["task"][0] == "response":
+            pad_token_id = self.tokenizer.pad_token_id
+            target_ids = batch["target_ids"]
+            decoder_input_ids = shift_tokens_right(target_ids, pad_token_id)
+            outputs = self(
+                input_ids=batch["source_ids"],
+                attention_mask=batch["source_mask"],
+                decoder_input_ids=decoder_input_ids,
+                use_cache=False,
+                task=batch["task"][0]
+            )
+        elif batch["task"][0] in ["emotion", "sentiment"]:
+            outputs = self(
+                input_ids=batch["source_ids"],
+                attention_mask=batch["source_mask"],
+                task=batch["task"][0]
+            )
+        else:
+            raise ValueError("The dataset contains an invalid task.")
+
+        x = outputs[1]  # last hidden state
+        eos_mask = batch["source_ids"].eq(self.model.config.eos_token_id)
+        if len(torch.unique(eos_mask.sum(1))) > 1:
+            raise ValueError("All examples must have the same number of <eos> tokens.")
+        sentence_representation = x[eos_mask, :].view(x.size(0), -1, x.size(-1))[:, -1, :]
+        logits = self.discriminator(sentence_representation)
+        loss = F.cross_entropy(logits.view(-1, 2), labels.view(-1))
+
+        return loss
+
+    def training_step(self, batch, batch_idx, optimizer_idx):
+        if optimizer_idx == 0:
+            loss = self._step(batch)
+            tensorboard_logs = {"train_loss": loss}
+        if optimizer_idx == 1:
+            loss = self._stepD(batch)
+            tensorboard_logs = {"train_lossD": loss}
         return {"loss": loss, "log": tensorboard_logs}
 
     def training_epoch_end(self, outputs):
-        avg_train_loss = torch.stack([x["loss"] for x in outputs]).mean()
+        avg_train_loss = torch.stack([x["loss"] for x in outputs[0]]).mean()
         tensorboard_logs = {"avg_train_loss": avg_train_loss}
         return {
             "avg_train_loss": avg_train_loss,
@@ -321,7 +416,16 @@ class MultitaskBartFinetuner(pl.LightningModule):
             eps=self.hparams.adam_epsilon
         )
         self.opt = optimizer
-        return [optimizer]
+        if not self.hparams.adversarial:
+            return [optimizer]
+        
+        # https://pytorch-lightning.readthedocs.io/en/0.7.5/optimizers.html
+        optimizerD = optim.Adam(
+            self.discriminator.parameters(),
+            lr=0.0002,
+            betas=(0.5, 0.999)
+        )
+        return [optimizer, optimizerD]
 
     def optimizer_step(
         self,
@@ -332,12 +436,17 @@ class MultitaskBartFinetuner(pl.LightningModule):
         second_order_closure=None,
         using_native_amp=None
     ):
-        if self.trainer.use_tpu:
-            xm.optimizer_step(optimizer)
-        else:
+        if optimizer_idx == 0:
+            if self.trainer.use_tpu:
+                xm.optimizer_step(optimizer)
+            else:
+                optimizer.step()
+            optimizer.zero_grad()
+            self.lr_scheduler.step()
+
+        if optimizer_idx == 1:
             optimizer.step()
-        optimizer.zero_grad()
-        self.lr_scheduler.step()
+            optimizer.zero_grad()
 
     def get_tqdm_dict(self):
         tqdm_dict = {
@@ -374,14 +483,31 @@ class MultitaskBartFinetuner(pl.LightningModule):
             )
             self.epoch_count += 1
 
-        elif self.hparams.sample_curriculum:
-            n = torch.arange(8, dtype=torch.int64)
-            t = self.epoch_count / self.hparams.num_train_epochs
-            y = torch.pow(t, n)
-            sampler = CurriculumBatchSampler(
-                data_source=train_dataset,
+        # curriculum
+        elif self.hparams.curriculum:
+            sampler = BatchSampler(
+                sampler = CurriculumSampler(
+                    data_source=train_dataset,
+                    step=self.epoch_count,
+                    num_steps=self.hparams.num_train_epochs
+                ),
                 batch_size=self.hparams.train_batch_size,
-                weights=y.tolist()
+                drop_last=False
+            )
+            self.epoch_count += 1
+
+        # competence
+        elif self.hparams.competence:
+            sampler = BatchSampler(
+                CompetenceSampler(
+                    data_source=train_dataset,
+                    difficulties=self.difficulties,
+                    step=self.epoch_count,
+                    num_steps=self.hparams.num_train_epochs,
+                    init_competence=0.01
+                ),
+                batch_size=self.hparams.train_batch_size,
+                drop_last=False
             )
             self.epoch_count += 1
 

@@ -106,7 +106,7 @@ class BartForMultitaskLearning(PretrainedBartModel):
                 self.model.shared.weight,
                 bias=self.final_logits_bias
             )
-            outputs = (lm_logits,) + outputs[1:]  # Add cache, hidden states and attention if they are here
+            outputs = (lm_logits,) + outputs#[1:]  # Add cache, hidden states and attention if they are here
 
             if labels is not None:
                 loss_fct = nn.CrossEntropyLoss()
@@ -141,7 +141,7 @@ class BartForMultitaskLearning(PretrainedBartModel):
             logits = classification_head(sentence_representation)
 
             # Prepend logits
-            outputs = (logits,) + outputs[1:]  # Add hidden states and attention if they are here
+            outputs = (logits,) + outputs#[1:]  # Add hidden states and attention if they are here
             if labels is not None:  # prepend loss to output,
                 loss = F.cross_entropy(
                     logits.view(-1, num_labels),
