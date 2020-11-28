@@ -2,7 +2,6 @@ import os
 import logging
 import random
 
-from nltk.util import ngrams
 from nltk.tokenize import word_tokenize
 from nltk.translate.bleu_score import corpus_bleu
 import numpy as np
@@ -13,19 +12,19 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, BatchSampler
 from transformers import (
     AdamW,
+    BartConfig,
     BartTokenizer,
-    get_linear_schedule_with_warmup,
-    BartConfig   
+    get_linear_schedule_with_warmup
 )
 from transformers.modeling_bart import (
     shift_tokens_right,
     BartClassificationHead
 )
 
-from dataset import data_dict, TaskDataset, MultitaskDataset
+from dataset import TaskDataset
 from multitask_bart import BartForMultitaskLearning
 from sampler import (
-    MultitaskSampler,
+    MultitaskBatchSampler,
     TaskCurriculumSampler,
     CurriculumSampler,
     CompetenceSampler
@@ -47,10 +46,8 @@ def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=-100):
     """From fairseq"""
     if target.dim() == lprobs.dim() - 1:
         target = target.unsqueeze(-1)
-
     nll_loss = -lprobs.gather(dim=-1, index=target)
     smooth_loss = -lprobs.sum(dim=-1, keepdim=True)
-
     if ignore_index is not None:
         pad_mask = target.eq(ignore_index)
         nll_loss.masked_fill_(pad_mask, 0.0)
@@ -62,7 +59,6 @@ def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=-100):
     nll_loss = nll_loss.sum()  # mean()? Scared to break other math.
     smooth_loss = smooth_loss.sum()
     eps_i = epsilon / lprobs.size(-1)
-    
     loss = (1.0 - epsilon) * nll_loss + eps_i * smooth_loss
     return loss, nll_loss
 
@@ -80,13 +76,13 @@ class MultitaskBartFinetuner(pl.LightningModule):
             hparams.tokenizer_name_or_path
         )
 
-        self.tasks = self.hparams.tasks.split(',')
+        self.tasks = self.hparams.tasks.split(",")
 
         # for loss weighting
         if hparams.loss_weights:
             loss_weights = [
                 float(weight)
-                for weight in self.hparams.loss_weights.split(',')
+                for weight in self.hparams.loss_weights.split(",")
             ]
             assert len(self.tasks) == len(loss_weights)
         else:
@@ -96,56 +92,62 @@ class MultitaskBartFinetuner(pl.LightningModule):
             for task, loss_weight in zip(self.tasks, loss_weights)
         }
 
-        # adversarial learning
-        if self.hparams.adversarial:
-            self.discriminator = BartClassificationHead(
-                self.model.config.d_model,
-                self.model.config.d_model,
-                2,
-                self.model.config.classif_dropout
-            )
-
         # curriculum on tasks
         self.epoch_count = 0
 
         # competence
         if self.hparams.competence:
             self.difficulties = []
-            task_dir = self.hparams.task_dirs.split(',')[
-                self.hparams.tasks.split(',').index('response')
+            task_dir = self.hparams.task_dirs.split(",")[
+                self.hparams.tasks.split(",").index("response")
             ]
             diff_path = os.path.join(
                 hparams.data_dir,
                 os.path.join(self.hparams.data_dir, task_dir),
-                'train.in_ent'
+                "train.in_ent"
             )
             with open(diff_path) as f:
                 for line in f:
                     self.difficulties.append(float(line))
 
-        # for calculating scores
-        if hparams.val_scoring:
-            score_dataset = MultitaskDataset(
-                tasks=['response'],
+        # adversarial learning
+        if self.hparams.adversarial:
+            self.discriminator = BartClassificationHead(
+                self.model.config.d_model,
+                self.model.config.d_model,
+                2,  # generation and classification
+                self.model.config.classif_dropout
+            )
+
+        # for calculating BLEU
+        if hparams.val_bleu:
+            tasks = hparams.tasks.split(",")
+            task_dirs = hparams.task_dirs.split(",")
+
+            assert "response" in tasks
+            task_dir = task_dirs[tasks.index("response")]
+
+            bleu_dataset = TaskDataset(
+                task="response",
                 tokenizer = self.tokenizer,
-                data_dir=hparams.data_dir,
-                type_path='val',
+                data_dir=os.path.join(hparams.data_dir, task_dir),
+                type_path="val",
                 max_len=hparams.max_seq_length
             )
-            self.score_loader = DataLoader(
-                score_dataset,
+            bleu_loader = DataLoader(
+                bleu_dataset,
                 batch_size=self.hparams.train_batch_size
             )
-            # bleu
-            self.list_of_references = []
-            ref_path = os.path.join(
-                hparams.data_dir,
-                data_dict['response'],
-                'val.target'
-            )
-            with open(ref_path) as f:
-                for line in f:
-                    self.list_of_references.append([word_tokenize(line)])
+            self.bleu_loader = bleu_loader
+
+            list_of_references = []
+            for batch in bleu_loader:
+                decs = [
+                    self.tokenizer.decode(ids, skip_special_tokens=True)
+                    for ids in batch["target_ids"]
+                ]
+                list_of_references.extend([[word_tokenize(dec)] for dec in decs])
+            self.list_of_references = list_of_references
 
     def is_logger(self):
         return self.trainer.global_rank <= 0
@@ -170,23 +172,23 @@ class MultitaskBartFinetuner(pl.LightningModule):
             task=task
         )
 
-    """def _step(self, batch):
-        lm_labels = batch["target_ids"]
-        lm_labels[lm_labels[:, :] == self.tokenizer.pad_token_id] = -100
-
-        outputs = self(
-            input_ids=batch["source_ids"],
-            attention_mask=batch["source_mask"],
-            lm_labels=lm_labels,
-            decoder_attention_mask=batch["target_mask"]
-        )
-        loss = outputs[0]
-        return loss
-    """
+    # def _step(self, batch):
+    #     lm_labels = batch["target_ids"]
+    #     lm_labels[lm_labels[:, :] == self.tokenizer.pad_token_id] = -100
+    #
+    #     outputs = self(
+    #         input_ids=batch["source_ids"],
+    #         attention_mask=batch["source_mask"],
+    #         lm_labels=lm_labels,
+    #         decoder_attention_mask=batch["target_mask"]
+    #     )
+    #     loss = outputs[0]
+    #     return loss
 
     def _step(self, batch):
         if self.hparams.adversarial:
-            labels = torch.tensor(int(batch["task"][0] != "response")).repeat(len(batch["task"]), 1).cuda()
+            label = int(batch["task"][0] == "response")
+            labels = torch.full((len(batch["task"]), 1), label).cuda()
 
         if batch["task"][0] == "response":
             pad_token_id = self.tokenizer.pad_token_id
@@ -280,7 +282,8 @@ class MultitaskBartFinetuner(pl.LightningModule):
         return loss
 
     def _stepD(self, batch):
-        labels = torch.tensor(int(batch["task"][0] == "response")).repeat(len(batch["task"]), 1).cuda()
+        label = int(batch["task"][0] == "response")
+        labels = torch.full((len(batch["task"]), 1), label).cuda()
 
         if batch["task"][0] == "response":
             pad_token_id = self.tokenizer.pad_token_id
@@ -305,20 +308,26 @@ class MultitaskBartFinetuner(pl.LightningModule):
         x = outputs[1]  # last hidden state
         eos_mask = batch["source_ids"].eq(self.model.config.eos_token_id)
         if len(torch.unique(eos_mask.sum(1))) > 1:
-            raise ValueError("All examples must have the same number of <eos> tokens.")
-        sentence_representation = x[eos_mask, :].view(x.size(0), -1, x.size(-1))[:, -1, :]
+            raise ValueError(
+                "All examples must have the same number of <eos> tokens."
+            )
+        sentence_representation = x[eos_mask, :].view(
+            x.size(0),
+            -1,
+            x.size(-1)
+        )[:, -1, :]
         logits = self.discriminator(sentence_representation)
         loss = F.cross_entropy(logits.view(-1, 2), labels.view(-1))
 
         return loss
 
     def training_step(self, batch, batch_idx, optimizer_idx):
-        if optimizer_idx == 0:
+        if optimizer_idx == 0:  # model
             loss = self._step(batch)
             tensorboard_logs = {"train_loss": loss}
-        if optimizer_idx == 1:
-            loss = self._stepD(batch)
-            tensorboard_logs = {"train_lossD": loss}
+        if optimizer_idx == 1:  # discriminator
+            lossD = self._stepD(batch)
+            tensorboard_logs = {"train_lossD": lossD}
         return {"loss": loss, "log": tensorboard_logs}
 
     def training_epoch_end(self, outputs):
@@ -334,56 +343,33 @@ class MultitaskBartFinetuner(pl.LightningModule):
         loss = self._step(batch)
         return {"val_loss": loss}
 
-    def _generate(self, batch):
-        outs = self.model.generate(
-            input_ids=batch['source_ids'].cuda(),
-            attention_mask=batch['source_mask'].cuda(), 
-            max_length=self.hparams.max_seq_length,
-            num_beams=5,
-            no_repeat_ngram_size=3,
-            early_stopping=True,
-            task=batch['task'][0]
-        )
-        decs = [
-            self.tokenizer.decode(ids, skip_special_tokens=True)
-            for ids in outs
-        ]
-        return decs
-
     def validation_epoch_end(self, outputs):
         avg_loss = torch.stack([x["val_loss"] for x in outputs]).mean()
         tensorboard_logs = {"val_loss": avg_loss}
 
-        # calculate scores
-        if self.hparams.val_scoring:
-
-            # generate
-            self.model.eval()
+        if self.hparams.val_bleu:  # calculate BLEU
             hypotheses = []
-            for batch in self.score_loader:
-                decs = self._generate(batch)
+
+            self.model.eval()
+            for batch in self.bleu_loader:
+                outs = self.model.generate(
+                    input_ids=batch["source_ids"].cuda(),
+                    attention_mask=batch["source_mask"].cuda(), 
+                    max_length=self.hparams.max_seq_length,
+                    num_beams=5,
+                    no_repeat_ngram_size=3,
+                    early_stopping=True,
+                    task=batch["task"][0]
+                )
+                decs = [
+                    self.tokenizer.decode(ids, skip_special_tokens=True)
+                    for ids in outs
+                ]
                 hypotheses.extend([word_tokenize(dec) for dec in decs])
             self.model.train()
 
-            # bleu
             bleu = corpus_bleu(self.list_of_references, hypotheses)
-            tensorboard_logs['val_bleu'] = bleu
-            
-            # dist
-            """num_tokens = 0
-            unigrams_set = set()
-            bigrams_set = set()
-
-            for tokens in hypotheses:
-                num_tokens += len(tokens)
-                unigrams_set |= set(ngrams(tokens, 1))
-                bigrams_set |= set(ngrams(tokens, 2))
-            dist1 = len(unigrams_set) / num_tokens
-            dist2 = len(bigrams_set) / num_tokens
-
-            tensorboard_logs['val_dist1'] = dist1
-            tensorboard_logs['val_dist2'] = dist2
-            """
+            tensorboard_logs["val_bleu"] = bleu
             
         return {
             "avg_val_loss": avg_loss,
@@ -416,16 +402,18 @@ class MultitaskBartFinetuner(pl.LightningModule):
             eps=self.hparams.adam_epsilon
         )
         self.opt = optimizer
-        if not self.hparams.adversarial:
-            return [optimizer]
-        
-        # https://pytorch-lightning.readthedocs.io/en/0.7.5/optimizers.html
-        optimizerD = optim.Adam(
-            self.discriminator.parameters(),
-            lr=0.0002,
-            betas=(0.5, 0.999)
-        )
-        return [optimizer, optimizerD]
+        optimizers = [optimizer]
+
+        if self.hparams.adversarial:
+            # https://pytorch.org/tutorials/beginner/dcgan_faces_tutorial.html
+            optimizerD = optim.Adam(
+                self.discriminator.parameters(),
+                lr=0.0002,
+                betas=(0.5, 0.999)
+            )
+            optimizers.append(optimizerD)
+
+        return optimizers
 
     def optimizer_step(
         self,
@@ -436,7 +424,7 @@ class MultitaskBartFinetuner(pl.LightningModule):
         second_order_closure=None,
         using_native_amp=None
     ):
-        if optimizer_idx == 0:
+        if optimizer_idx == 0:  # model
             if self.trainer.use_tpu:
                 xm.optimizer_step(optimizer)
             else:
@@ -444,7 +432,7 @@ class MultitaskBartFinetuner(pl.LightningModule):
             optimizer.zero_grad()
             self.lr_scheduler.step()
 
-        if optimizer_idx == 1:
+        if optimizer_idx == 1:  # discriminator
             optimizer.step()
             optimizer.zero_grad()
 
@@ -512,7 +500,7 @@ class MultitaskBartFinetuner(pl.LightningModule):
             self.epoch_count += 1
 
         else:
-            sampler = MultitaskSampler(
+            sampler = MultitaskBatchSampler(
                 data_source=train_dataset,
                 batch_size=self.hparams.train_batch_size,
                 drop_last=False
@@ -548,13 +536,11 @@ class MultitaskBartFinetuner(pl.LightningModule):
             type_path="val",
             args=self.hparams
         )
-
-        sampler = MultitaskSampler(
+        sampler = MultitaskBatchSampler(
             data_source=val_dataset,
             batch_size=self.hparams.train_batch_size,
             drop_last=False
         )
-
         return DataLoader(
             dataset=val_dataset,
             batch_sampler=sampler,
@@ -568,10 +554,8 @@ logger = logging.getLogger(__name__)
 class LoggingCallback(pl.Callback):
     def on_validation_end(self, trainer, pl_module):
         logger.info("***** Validation results *****")
-
         if pl_module.is_logger():
             metrics = trainer.callback_metrics
-
             # Log results
             for key in sorted(metrics):
                 if key not in ["log", "progress_bar"]:
@@ -588,11 +572,12 @@ class LoggingCallback(pl.Callback):
                 pl_module.hparams.output_dir,
                 "test_results.txt"
             )
-
             with open(output_test_results_file, "w") as writer:
                 for key in sorted(metrics):
                     if key not in ["log", "progress_bar"]:
-                        logger.info("{} = {}\n".format(key, str(metrics[key])))
+                        logger.info(
+                            "{} = {}\n".format(key, str(metrics[key]))
+                        )
                         writer.write(
                             "{} = {}\n".format(key, str(metrics[key]))
                         )
@@ -616,7 +601,7 @@ args_dict = dict(
     early_stop_callback=False,
     fp_16=False,  # if you want to enable 16-bit training then install apex and set this to true
     opt_level="O1",  # you can find out more on optimisation levels here https://nvidia.github.io/apex/amp.html#opt-levels-and-properties
-    max_grad_norm=1.0, # if you enable 16-bit training then set this to a sensible value, 0.5 is a good default
+    max_grad_norm=1.0,  # if you enable 16-bit training then set this to a sensible value, 0.5 is a good default
     seed=42,
     label_smoothing=0.1
 )

@@ -29,7 +29,7 @@ parser.add_argument('--curriculum', action='store_true')
 
 parser.add_argument('--competence', action='store_true')
 
-parser.add_argument('--val_scoring', action='store_true')
+parser.add_argument('--val_bleu', action='store_true')
 
 parser.add_argument('--adversarial', action='store_true')
 

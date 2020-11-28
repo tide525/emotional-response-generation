@@ -7,16 +7,7 @@ from torch.utils.data import Sampler
 from torch._six import int_classes as _int_classes
 
 
-class MultitaskSampler(Sampler):
-    r"""Samples elements for multi-task learning.
-
-    Args:
-        data_source (Dataset): dataset to sample from
-        batch_size (int): Size of mini-batch.
-        drop_last (bool): If ``True``, the sampler will drop the last batch if
-            its size would be less than ``batch_size``
-    """
-
+class MultitaskBatchSampler(Sampler):
     def __init__(self, data_source, batch_size, drop_last):
         if (
             not isinstance(batch_size, _int_classes)

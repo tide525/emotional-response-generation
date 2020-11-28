@@ -6,14 +6,20 @@ from torch.utils.data import DataLoader
 from transformers import BartTokenizer
 
 from multitask_bart import BartForMultitaskLearning
-from dataset import MultitaskDataset
+from dataset import TaskDataset
 
 output_dir = sys.argv[1]
 
 model = BartForMultitaskLearning.from_pretrained(output_dir).cuda()
 tokenizer = BartTokenizer.from_pretrained('facebook/bart-large')
 
-dataset = MultitaskDataset(['response'], tokenizer, '../data', 'test', 64)
+dataset = TaskDataset(
+    'response',
+    tokenizer,
+    os.path.join('..', 'data', 'dd', 'dial', 'full'),
+    'test',
+    64
+)
 loader = DataLoader(dataset, batch_size=32)
 
 model.eval()
