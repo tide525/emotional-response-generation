@@ -1,8 +1,6 @@
 # Emotional Response Generation
 
-## Toolkits
-
-### Hugging Face
+Hugging Face
 
 https://github.com/patil-suraj/exploring-T5/blob/master/t5_fine_tuning.ipynb
 
@@ -11,51 +9,26 @@ https://github.com/patil-suraj/exploring-T5/blob/master/t5_fine_tuning.ipynb
 
 https://huggingface.co/blog/how-to-generate
 
-### Fairseq
+Fairseq
 
 https://github.com/pytorch/fairseq/blob/master/examples/bart/README.summarization.md
 
-## Datasets
+Datasets
 
-### Response generation
-
-Cornell Movie-Dialogs Corpus
 https://www.cs.cornell.edu/~cristian/Cornell_Movie-Dialogs_Corpus.html
 
-**DailyDialog**
 http://yanran.li/dailydialog
 
-EmpatheticDialogues
 https://github.com/facebookresearch/EmpatheticDialogues
 
-Ubuntu Dialogue Corpus
 https://github.com/rkadlec/ubuntu-ranking-dataset-creator
 
-### Emotion recognition
-
-CrowdFlower
 https://data.world/crowdflower/sentiment-analysis-in-text
 
-**Hashtag Emotion Corpus**
 http://saifmohammad.com/WebPages/SentimentEmotionLabeledData.html
 
-Unify Emotion Datasets
 https://github.com/sarnthil/unify-emotion-datasets
 
-### Sentiment analysis
+https://ai.stanford.edu/~amaas/data/sentiment/
 
-Large Movie Review Dataset https://ai.stanford.edu/~amaas/data/sentiment/
-
-**Stanford Sentiment Treebank**
 https://nlp.stanford.edu/sentiment/index.html
-
-## Evaluation
-
-### Amazon Mechanical Turk
-
-https://www.mturk.com/
-https://requester.mturk.com/
-
-https://docs.aws.amazon.com/sagemaker/latest/dg/sms-ui-template-reference.html
-
-https://morninj.github.io/mechanical-turk-cost-calculator/
