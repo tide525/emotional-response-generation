@@ -23,11 +23,11 @@ class TaskDataset(Dataset):
         return len(self.inputs)
 
     def __getitem__(self, index):
-        source_ids = self.inputs[index]['input_ids'].squeeze(0)
-        source_mask = self.inputs[index]['attention_mask'].squeeze(0)  # might need to squeeze
+        source_ids = self.inputs[index]['input_ids'].squeeze()
+        source_mask = self.inputs[index]['attention_mask'].squeeze()  # might need to squeeze
 
-        target_ids = self.targets[index]['input_ids'].squeeze(0)
-        target_mask = self.targets[index]['attention_mask'].squeeze(0)  # might need to squeeze
+        target_ids = self.targets[index]['input_ids'].squeeze()
+        target_mask = self.targets[index]['attention_mask'].squeeze()  # might need to squeeze
 
         return {
             'task': self.task,
