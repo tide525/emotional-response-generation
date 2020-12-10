@@ -1,17 +1,9 @@
 __pycache__/
 
-fairseq/bart.large*
-fairseq/crawled/
+*.sh
+lightning_logs/
 
-hf/data/*/
-
-!hf/data/dd/
-hf/data/dd/*/*/
-
-!hf/data/dd/dial/sorted/
-
-hf/bart/*.sh
-hf/bart/lightning_logs/
-
-hf/roberta/*.sh
-hf/roberta/lightning_logs/
+data/*/
+!data/dd/
+data/dd/*/*/
+!data/dd/dial/sorted/

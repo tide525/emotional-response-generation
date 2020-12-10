@@ -44,6 +44,17 @@ class BartForMultitaskLearning(PretrainedBartModel):
         self.model._init_weights(self.sentiment_head.dense)
         self.model._init_weights(self.sentiment_head.out_proj)
 
+        self.num_cfemotions = 12
+
+        self.cfemotion_head = BartClassificationHead(
+            config.d_model,
+            config.d_model,
+            self.num_cfemotions,
+            config.classif_dropout
+        )
+        self.model._init_weights(self.cfemotion_head.dense)
+        self.model._init_weights(self.cfemotion_head.out_proj)
+
     def resize_token_embeddings(self, new_num_tokens):
         old_num_tokens = self.model.shared.num_embeddings
         new_embeddings = super().resize_token_embeddings(new_num_tokens)
@@ -118,7 +129,7 @@ class BartForMultitaskLearning(PretrainedBartModel):
                 )
                 outputs = (masked_lm_loss,) + outputs
 
-        elif task in ["emotion", "sentiment"]:
+        elif task in ["emotion", "sentiment", "cfemotion"]:
             x = outputs[0]  # last hidden state
 
             eos_mask = input_ids.eq(self.config.eos_token_id)
@@ -130,9 +141,12 @@ class BartForMultitaskLearning(PretrainedBartModel):
             if task == "emotion":
                 classification_head = self.emotion_head
                 num_labels = self.num_emotions
-            else:
+            elif task == "sentiment":
                 classification_head = self.sentiment_head
                 num_labels = self.num_sentiments
+            else:
+                classification_head = self.cfemotion_head
+                num_labels = self.num_cfemotions
 
             sentence_representation = x[eos_mask, :].view(
                 x.size(0),
@@ -151,50 +165,6 @@ class BartForMultitaskLearning(PretrainedBartModel):
                 )
                 outputs = (loss,) + outputs
         
-        elif task == 'response_emotion':
-            x = outputs[0]  # last hidden state
-
-            eos_mask = input_ids.eq(self.config.eos_token_id)
-            if len(torch.unique(eos_mask.sum(1))) > 1:
-                raise ValueError(
-                   "All examples must have the same number of <eos> tokens."
-                )
-
-            lm_logits = F.linear(
-                outputs[0],
-                self.model.shared.weight,
-                bias=self.final_logits_bias
-            )
-            outputs = (lm_logits,) + outputs[1:]  # Add cache, hidden states and attention if they are here
-
-            sentence_representation = x[eos_mask, :].view(
-                x.size(0),
-                -1,
-                x.size(-1)
-            )[:, -1, :]
-            logits = self.emotion_head(sentence_representation)
-
-            # Prepend logits
-            outputs = (logits,) + outputs#[1:]  # Add hidden states and attention if they are here
-
-            if labels is not None:  # prepend loss to output,
-                loss_fct = nn.CrossEntropyLoss()
-                # TODO(SS): do we need to ignore pad tokens in labels?
-                masked_lm_loss = loss_fct(
-                    lm_logits.view(-1, self.config.vocab_size),
-                    labels.view(-1)
-                )
-                outputs = (masked_lm_loss,) + outputs
-
-                loss = F.cross_entropy(
-                    logits.view(-1, self.num_emotions),
-                    labels.view(-1)
-                )
-                outputs = (loss,) + outputs
-
-                loss_sum = masked_lm_loss + loss
-                outputs = (loss_sum,) + outputs
-
         else:
             raise ValueError("The dataset contains an invalid task.")
 
