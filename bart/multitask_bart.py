@@ -23,8 +23,18 @@ class BartForMultitaskLearning(PretrainedBartModel):
             torch.zeros((1, self.model.shared.num_embeddings))
         )
 
+        self.num_cfemotions = 12
         self.num_emotions = 6
         self.num_sentiments = 2
+
+        self.cfemotion_head = BartClassificationHead(
+            config.d_model,
+            config.d_model,
+            self.num_cfemotions,
+            config.classif_dropout
+        )
+        self.model._init_weights(self.cfemotion_head.dense)
+        self.model._init_weights(self.cfemotion_head.out_proj)
 
         self.emotion_head = BartClassificationHead(
             config.d_model,
@@ -43,17 +53,6 @@ class BartForMultitaskLearning(PretrainedBartModel):
         )
         self.model._init_weights(self.sentiment_head.dense)
         self.model._init_weights(self.sentiment_head.out_proj)
-
-        self.num_cfemotions = 12
-
-        self.cfemotion_head = BartClassificationHead(
-            config.d_model,
-            config.d_model,
-            self.num_cfemotions,
-            config.classif_dropout
-        )
-        self.model._init_weights(self.cfemotion_head.dense)
-        self.model._init_weights(self.cfemotion_head.out_proj)
 
     def resize_token_embeddings(self, new_num_tokens):
         old_num_tokens = self.model.shared.num_embeddings
@@ -118,7 +117,6 @@ class BartForMultitaskLearning(PretrainedBartModel):
                 bias=self.final_logits_bias
             )
             outputs = (lm_logits,) + outputs[1:]  # Add cache, hidden states and attention if they are here
-            # outputs = (lm_logits,) + outputs#[1:]  # Add cache, hidden states and attention if they are here
 
             if labels is not None:
                 loss_fct = nn.CrossEntropyLoss()
@@ -129,7 +127,7 @@ class BartForMultitaskLearning(PretrainedBartModel):
                 )
                 outputs = (masked_lm_loss,) + outputs
 
-        elif task in ["emotion", "sentiment", "cfemotion"]:
+        elif task in ["cfemotion", "emotion", "sentiment"]:
             x = outputs[0]  # last hidden state
 
             eos_mask = input_ids.eq(self.config.eos_token_id)
@@ -138,15 +136,15 @@ class BartForMultitaskLearning(PretrainedBartModel):
                    "All examples must have the same number of <eos> tokens."
                 )
 
-            if task == "emotion":
-                classification_head = self.emotion_head
-                num_labels = self.num_emotions
-            elif task == "sentiment":
-                classification_head = self.sentiment_head
-                num_labels = self.num_sentiments
-            else:
+            if task == "cfemotion":
                 classification_head = self.cfemotion_head
                 num_labels = self.num_cfemotions
+            elif task == "emotion":
+                classification_head = self.emotion_head
+                num_labels = self.num_emotions
+            else:
+                classification_head = self.sentiment_head
+                num_labels = self.num_sentiments
 
             sentence_representation = x[eos_mask, :].view(
                 x.size(0),
@@ -157,7 +155,6 @@ class BartForMultitaskLearning(PretrainedBartModel):
 
             # Prepend logits
             outputs = (logits,) + outputs[1:]  # Add hidden states and attention if they are here
-            # outputs = (logits,) + outputs#[1:]  # Add hidden states and attention if they are here
             if labels is not None:  # prepend loss to output,
                 loss = F.cross_entropy(
                     logits.view(-1, num_labels),
@@ -240,3 +237,4 @@ class BartForMultitaskLearning(PretrainedBartModel):
 
     def get_output_embeddings(self):
         return _make_linear_from_emb(self.model.shared)  # make it on the fly
+        

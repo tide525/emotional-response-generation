@@ -4,27 +4,16 @@ import shutil
 import sys
 
 import pytorch_lightning as pl
-from torch.utils.data import ConcatDataset
 
-from dataset import TaskDataset
+from dataset import MultitaskDataset
 from model import MultitaskBartFinetuner, LoggingCallback, args_dict
 
 parser = argparse.ArgumentParser()
 
 for name, default in args_dict.items():
     parser.add_argument('--' + name, type=type(default), default=default)
-
 parser.add_argument('--tasks', type=str, default='')
 parser.add_argument('--task_dirs', type=str, default='')
-
-parser.add_argument('--loss_weights', type=str, default='')
-
-parser.add_argument('--competence', action='store_true')
-parser.add_argument('--task_competence', action='store_true')
-
-parser.add_argument('--adversarial', action='store_true')
-
-parser.add_argument('--val_bleu', action='store_true')
 
 args = parser.parse_args()
 
@@ -50,28 +39,19 @@ train_params = dict(
     amp_level=args.opt_level,
     gradient_clip_val=args.max_grad_norm,
     checkpoint_callback=checkpoint_callback,
-    callbacks=[LoggingCallback()],
-
-    # https://pytorch-lightning.readthedocs.io/en/stable/trainer.html#reload-dataloaders-every-epoch
-    reload_dataloaders_every_epoch=(args.competence or args.task_competence)
+    callbacks=[LoggingCallback()]
 )
 
 
 def get_dataset(tokenizer, type_path, args):
-    tasks = args.tasks.split(',')
-    task_dirs = args.task_dirs.split(',')
-    assert len(task_dirs) == len(tasks)
-    datasets = []
-    for task, task_dir in zip(tasks, task_dirs):
-        dataset = TaskDataset(
-            task,
-            tokenizer,
-            os.path.join(args.data_dir, task_dir),
-            type_path,
-            args.max_seq_length
-        )
-        datasets.append(dataset)
-    return ConcatDataset(datasets)
+    return MultitaskDataset(
+        tasks=args.tasks.split(','),
+        task_dirs=args.task_dirs.split(','),
+        tokenizer=tokenizer,
+        data_dir=args.data_dir,
+        type_path=type_path,
+        max_len=args.max_seq_length
+    )
 
 
 # initialize model

@@ -1,12 +1,11 @@
-import logging
 import os
+import logging
 import random
 
 import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
-import torch.optim as optim
 from torch.utils.data import DataLoader
 from transformers import (
     AdamW,
@@ -14,20 +13,10 @@ from transformers import (
     BartTokenizer,
     get_linear_schedule_with_warmup
 )
-from transformers.modeling_bart import (
-    shift_tokens_right,
-    BartClassificationHead
-)
-from nltk.tokenize import word_tokenize
-from nltk.translate.bleu_score import corpus_bleu
+from transformers.modeling_bart import shift_tokens_right
 
-from dataset import TaskDataset
 from multitask_bart import BartForMultitaskLearning
-from sampler import (
-    MultitaskBatchSampler,
-    CompetenceBatchSampler,
-    TaskCompetenceBatchSampler
-)
+from sampler import MultitaskSampler
 
 
 def set_seed(seed):
@@ -69,75 +58,12 @@ class MultitaskBartFinetuner(pl.LightningModule):
         self.get_dataset = get_dataset
 
         self.model = BartForMultitaskLearning.from_pretrained(
-            hparams.model_name_or_path
+            hparams.model_name_or_path,
+            config=BartConfig()
         )
         self.tokenizer = BartTokenizer.from_pretrained(
             hparams.tokenizer_name_or_path
         )
-
-        self.tasks = self.hparams.tasks.split(',')
-
-        # loss weighting
-        self.loss_weights = (
-            [float(weight) for weight in hparams.loss_weights.split(',')]
-            if hparams.loss_weights
-            else [1.0 for task in self.tasks]
-        )
-        assert len(self.tasks) == len(loss_weights)
-
-        # competence-based curriculum learning
-        if self.hparams.competence:
-            self.difficulties = []
-            task_dir = self.hparams.task_dirs.split(',')[
-                self.hparams.tasks.split(',').index('response')
-            ]
-            diff_path = os.path.join(
-                hparams.data_dir,
-                os.path.join(self.hparams.data_dir, task_dir),
-                'train.in_ent'
-            )
-            with open(diff_path) as f:
-                for line in f:
-                    self.difficulties.append(float(line))
-
-        # adversarial learning
-        if hparams.adversarial:
-            self.discriminator = BartClassificationHead(
-                self.model.config.d_model,
-                self.model.config.d_model,
-                2,  # generation and classification
-                self.model.config.classif_dropout
-            )
-
-        # BLEU
-        if hparams.val_bleu:
-            tasks = hparams.tasks.split(',')
-            task_dirs = hparams.task_dirs.split(',')
-
-            assert 'response' in tasks
-            task_dir = task_dirs[tasks.index('response')]
-
-            bleu_dataset = TaskDataset(
-                task='response',
-                tokenizer = self.tokenizer,
-                data_dir=os.path.join(hparams.data_dir, task_dir),
-                type_path='val',
-                max_len=hparams.max_seq_length
-            )
-            bleu_loader = DataLoader(
-                bleu_dataset,
-                batch_size=self.hparams.train_batch_size
-            )
-            self.bleu_loader = bleu_loader
-
-            list_of_references = []
-            for batch in bleu_loader:
-                decs = [
-                    self.tokenizer.decode(ids, skip_special_tokens=True)
-                    for ids in batch['target_ids']
-                ]
-                list_of_references.extend([[word_tokenize(dec)] for dec in decs])
-            self.list_of_references = list_of_references
 
     def is_logger(self):
         return self.trainer.global_rank <= 0
@@ -162,24 +88,21 @@ class MultitaskBartFinetuner(pl.LightningModule):
             task=task
         )
 
-    # def _step(self, batch):
-    #     lm_labels = batch['target_ids']
-    #     lm_labels[lm_labels[:, :] == self.tokenizer.pad_token_id] = -100
-    #
-    #     outputs = self(
-    #         input_ids=batch['source_ids'],
-    #         attention_mask=batch['source_mask'],
-    #         lm_labels=lm_labels,
-    #         decoder_attention_mask=batch['target_mask']
-    #     )
-    #     loss = outputs[0]
-    #     return loss
+    '''def _step(self, batch):
+        lm_labels = batch['target_ids']
+        lm_labels[lm_labels[:, :] == self.tokenizer.pad_token_id] = -100
+
+        outputs = self(
+            input_ids=batch['source_ids'],
+            attention_mask=batch['source_mask'],
+            lm_labels=lm_labels,
+            decoder_attention_mask=batch['target_mask']
+        )
+        loss = outputs[0]
+        return loss
+    '''
 
     def _step(self, batch):
-        if self.hparams.adversarial:
-            label = int(batch['task'][0] == 'response')
-            labels = torch.full((len(batch['task']), 1), label).cuda()
-
         if batch['task'][0] == 'response':
             pad_token_id = self.tokenizer.pad_token_id
             target_ids = batch['target_ids']
@@ -202,93 +125,27 @@ class MultitaskBartFinetuner(pl.LightningModule):
                 ignore_index=pad_token_id
             )
 
-            loss = self.loss_weights[self.tasks.index('response')] * loss
-
-            if self.hparams.adversarial:
-                x = outputs[1]  # last hidden state
-                eos_mask = batch['source_ids'].eq(self.model.config.eos_token_id)
-                if len(torch.unique(eos_mask.sum(1))) > 1:
-                    raise ValueError('All examples must have the same number of <eos> tokens.')
-                sentence_representation = x[eos_mask, :].view(x.size(0), -1, x.size(-1))[:, -1, :]
-                logits = self.discriminator(sentence_representation)
-                loss = loss + F.cross_entropy(logits.view(-1, 2), labels.view(-1))
-
-        elif batch['task'][0] in ['emotion', 'sentiment', 'cfemotion']:
+        elif batch['task'][0] in ['cfemotion', 'emotion', 'sentiment']:
             outputs = self(
                 input_ids=batch['source_ids'],
                 attention_mask=batch['source_mask'],
-                lm_labels=batch['target_ids'],
+                lm_labels=batch['label'],
                 task=batch['task'][0]
             )
             loss = outputs[0]
 
-            loss = self.loss_weights[self.tasks.index(batch['task'][0])] * loss
-
-            if self.hparams.adversarial:
-                x = outputs[2]  # last hidden state
-                eos_mask = batch['source_ids'].eq(self.model.config.eos_token_id)
-                if len(torch.unique(eos_mask.sum(1))) > 1:
-                    raise ValueError('All examples must have the same number of <eos> tokens.')
-                sentence_representation = x[eos_mask, :].view(x.size(0), -1, x.size(-1))[:, -1, :]
-                logits = self.discriminator(sentence_representation)
-                loss = loss + F.cross_entropy(logits.view(-1, 2), labels.view(-1))
-
         else:
             raise ValueError('The dataset contains an invalid task.')
 
         return loss
 
-    def _stepD(self, batch):
-        label = int(batch['task'][0] == 'response')
-        labels = torch.full((len(batch['task']), 1), label).cuda()
-
-        if batch['task'][0] == 'response':
-            pad_token_id = self.tokenizer.pad_token_id
-            target_ids = batch['target_ids']
-            decoder_input_ids = shift_tokens_right(target_ids, pad_token_id)
-            outputs = self(
-                input_ids=batch['source_ids'],
-                attention_mask=batch['source_mask'],
-                decoder_input_ids=decoder_input_ids,
-                use_cache=False,
-                task=batch['task'][0]
-            )
-        elif batch['task'][0] in ['emotion', 'sentiment']:
-            outputs = self(
-                input_ids=batch['source_ids'],
-                attention_mask=batch['source_mask'],
-                task=batch['task'][0]
-            )
-        else:
-            raise ValueError('The dataset contains an invalid task.')
-
-        x = outputs[1]  # last hidden state
-        eos_mask = batch['source_ids'].eq(self.model.config.eos_token_id)
-        if len(torch.unique(eos_mask.sum(1))) > 1:
-            raise ValueError(
-                'All examples must have the same number of <eos> tokens.'
-            )
-        sentence_representation = x[eos_mask, :].view(
-            x.size(0),
-            -1,
-            x.size(-1)
-        )[:, -1, :]
-        logits = self.discriminator(sentence_representation)
-        loss = F.cross_entropy(logits.view(-1, 2), labels.view(-1))
-
-        return loss
-
-    def training_step(self, batch, batch_idx, optimizer_idx):
-        if optimizer_idx == 0:  # model
-            loss = self._step(batch)
-            tensorboard_logs = {'train_loss': loss}
-        if optimizer_idx == 1:  # discriminator
-            lossD = self._stepD(batch)
-            tensorboard_logs = {'train_lossD': lossD}
+    def training_step(self, batch, batch_idx):
+        loss = self._step(batch)
+        tensorboard_logs = {'train_loss': loss}
         return {'loss': loss, 'log': tensorboard_logs}
 
     def training_epoch_end(self, outputs):
-        avg_train_loss = torch.stack([x['loss'] for x in outputs[0]]).mean()
+        avg_train_loss = torch.stack([x['loss'] for x in outputs]).mean()
         tensorboard_logs = {'avg_train_loss': avg_train_loss}
         return {
             'avg_train_loss': avg_train_loss,
@@ -303,32 +160,6 @@ class MultitaskBartFinetuner(pl.LightningModule):
     def validation_epoch_end(self, outputs):
         avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
         tensorboard_logs = {'val_loss': avg_loss}
-
-        if self.hparams.val_bleu:
-            hypotheses = []
-
-            # generate
-            self.model.eval()
-            for batch in self.bleu_loader:
-                outs = self.model.generate(
-                    input_ids=batch['source_ids'].cuda(),
-                    attention_mask=batch['source_mask'].cuda(), 
-                    max_length=self.hparams.max_seq_length,
-                    num_beams=5,
-                    no_repeat_ngram_size=3,
-                    early_stopping=True,
-                    task=batch['task'][0]
-                )
-                decs = [
-                    self.tokenizer.decode(ids, skip_special_tokens=True)
-                    for ids in outs
-                ]
-                hypotheses.extend([word_tokenize(dec) for dec in decs])
-            self.model.train()
-
-            bleu = corpus_bleu(self.list_of_references, hypotheses)
-            tensorboard_logs['val_bleu'] = bleu
-            
         return {
             'avg_val_loss': avg_loss,
             'log': tensorboard_logs,
@@ -360,18 +191,7 @@ class MultitaskBartFinetuner(pl.LightningModule):
             eps=self.hparams.adam_epsilon
         )
         self.opt = optimizer
-        optimizers = [optimizer]
-
-        if self.hparams.adversarial:
-            # https://pytorch.org/tutorials/beginner/dcgan_faces_tutorial.html
-            optimizerD = optim.Adam(
-                self.discriminator.parameters(),
-                lr=0.0002,
-                betas=(0.5, 0.999)
-            )
-            optimizers.append(optimizerD)
-
-        return optimizers
+        return [optimizer]
 
     def optimizer_step(
         self,
@@ -382,17 +202,12 @@ class MultitaskBartFinetuner(pl.LightningModule):
         second_order_closure=None,
         using_native_amp=None
     ):
-        if optimizer_idx == 0:  # model
-            if self.trainer.use_tpu:
-                xm.optimizer_step(optimizer)
-            else:
-                optimizer.step()
-            optimizer.zero_grad()
-            self.lr_scheduler.step()
-
-        if optimizer_idx == 1:  # discriminator
+        if self.trainer.use_tpu:
+            xm.optimizer_step(optimizer)
+        else:
             optimizer.step()
-            optimizer.zero_grad()
+        optimizer.zero_grad()
+        self.lr_scheduler.step()
 
     def get_tqdm_dict(self):
         tqdm_dict = {
@@ -407,50 +222,16 @@ class MultitaskBartFinetuner(pl.LightningModule):
             type_path='train',
             args=self.hparams
         )
-
-        # competence
-        if self.hparams.competence:
-            assert len(self.tasks) == 1
-            sampler = CompetenceBatchSampler(
-                data_source=train_dataset,
-                batch_size=self.hparams.train_batch_size,
-                drop_last=False,
-                epoch=self.current_epoch,
-                num_epochs=self.hparams.num_train_epochs,
-                difficulties=self.difficulties,
-                init_competence=0.1
-            )
-
-        # task competence
-        elif self.hparams.task_competence:
-            assert len(self.tasks) == 3
-            sorted_tasks = ['response', 'sentiment', 'emotion']
-            difficulties = [0, 2, 6]  # number of labels
-            sampler = TaskCompetenceBatchSampler(
-                data_source=train_dataset,
-                batch_size=self.hparams.train_batch_size,
-                drop_last=False,
-                epoch=self.current_epoch,
-                num_epochs=self.hparams.num_train_epochs,
-                tasks=sorted_tasks,
-                difficulties=difficulties,
-                init_competence=0.5
-            )
-
-        # default
-        else:
-            sampler = MultitaskBatchSampler(
-                data_source=train_dataset,
-                batch_size=self.hparams.train_batch_size,
-                drop_last=False
-            )
-
+        sampler = MultitaskSampler(
+            data_source=train_dataset,
+            batch_size=self.hparams.train_batch_size,
+            drop_last=False
+        )
         dataloader = DataLoader(
             dataset=train_dataset,
             batch_sampler=sampler,
             num_workers=4
         )
-        
         t_total = (
             (
                 len(dataloader.dataset)
@@ -475,7 +256,7 @@ class MultitaskBartFinetuner(pl.LightningModule):
             type_path='val',
             args=self.hparams
         )
-        sampler = MultitaskBatchSampler(
+        sampler = MultitaskSampler(
             data_source=val_dataset,
             batch_size=self.hparams.train_batch_size,
             drop_last=False
@@ -492,16 +273,16 @@ logger = logging.getLogger(__name__)
 
 class LoggingCallback(pl.Callback):
     def on_validation_end(self, trainer, pl_module):
-        logger.info("***** Validation results *****")
+        logger.info('***** Validation results *****')
         if pl_module.is_logger():
             metrics = trainer.callback_metrics
             # Log results
             for key in sorted(metrics):
-                if key not in ["log", "progress_bar"]:
-                    logger.info("{} = {}\n".format(key, str(metrics[key])))
+                if key not in ['log', 'progress_bar']:
+                    logger.info('{} = {}\n'.format(key, str(metrics[key])))
 
     def on_test_end(self, trainer, pl_module):
-        logger.info("***** Test results *****")
+        logger.info('***** Test results *****')
 
         if pl_module.is_logger():
             metrics = trainer.callback_metrics
@@ -509,16 +290,16 @@ class LoggingCallback(pl.Callback):
             # Log and save results to file
             output_test_results_file = os.path.join(
                 pl_module.hparams.output_dir,
-                "test_results.txt"
+                'test_results.txt'
             )
-            with open(output_test_results_file, "w") as writer:
+            with open(output_test_results_file, 'w') as writer:
                 for key in sorted(metrics):
-                    if key not in ["log", "progress_bar"]:
+                    if key not in ['log', 'progress_bar']:
                         logger.info(
-                            "{} = {}\n".format(key, str(metrics[key]))
+                            '{} = {}\n'.format(key, str(metrics[key]))
                         )
                         writer.write(
-                            "{} = {}\n".format(key, str(metrics[key]))
+                            '{} = {}\n'.format(key, str(metrics[key]))
                         )
 
 
