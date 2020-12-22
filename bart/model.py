@@ -65,6 +65,13 @@ class MultitaskBartFinetuner(pl.LightningModule):
             hparams.tokenizer_name_or_path
         )
 
+        if hparams.task_weights:
+            self.tasks = hparams.tasks.split(',')
+            self.task_weights = [
+                float(task_weight)
+                for task_weight in hparams.task_weights.split(',')
+            ]
+
     def is_logger(self):
         return self.trainer.global_rank <= 0
 
@@ -136,6 +143,12 @@ class MultitaskBartFinetuner(pl.LightningModule):
 
         else:
             raise ValueError('The dataset contains an invalid task.')
+
+        if self.hparams.task_weights:
+            loss = (
+                self.task_weights[self.tasks.index(batch['task'][0])]
+                * loss
+            )
 
         return loss
 

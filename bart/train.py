@@ -7,6 +7,7 @@ import pytorch_lightning as pl
 
 from dataset import MultitaskDataset
 from model import MultitaskBartFinetuner, LoggingCallback, args_dict
+from adv import AdversarialMultitaskBartFinetuner
 
 parser = argparse.ArgumentParser()
 
@@ -14,6 +15,9 @@ for name, default in args_dict.items():
     parser.add_argument('--' + name, type=type(default), default=default)
 parser.add_argument('--tasks', type=str, default='')
 parser.add_argument('--task_dirs', type=str, default='')
+
+parser.add_argument('--task_weights', type=str, default='')
+parser.add_argument('--adversarial', action='store_true')
 
 args = parser.parse_args()
 
@@ -55,7 +59,10 @@ def get_dataset(tokenizer, type_path, args):
 
 
 # initialize model
-model = MultitaskBartFinetuner(args, get_dataset)
+if args.adversarial:
+    model = AdversarialMultitaskBartFinetuner(args, get_dataset)
+else:
+    model = MultitaskBartFinetuner(args, get_dataset)
 
 # initialize trainer
 trainer = pl.Trainer(**train_params)

@@ -13,7 +13,7 @@ output_dir = sys.argv[1]
 model = BartForMultitaskLearning.from_pretrained(output_dir).cuda()
 tokenizer = BartTokenizer.from_pretrained('facebook/bart-large')
 
-dataset = MultitaskDataset(['response'], tokenizer, '../data', 'test', 64)
+dataset = MultitaskDataset(['response'], ['dd/dial/full'], tokenizer, '../data', 'test', 64)
 loader = DataLoader(dataset, batch_size=32)
 
 model.eval()
