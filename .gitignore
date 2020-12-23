@@ -1,9 +1,10 @@
 __pycache__/
 
-*.sh
-lightning_logs/
-
 data/*/
 !data/dd/
 data/dd/*/*/
-!data/dd/dial/sorted/
+
+*.sh
+lightning_logs/
+
+*.csv
